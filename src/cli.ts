@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { captureFromBrowser, loginToX } from "./browser.ts";
+import { cronStatus, installCron, runCronNow, uninstallCron } from "./cron.ts";
 import {
   addTag,
   getBookmarkById,
@@ -15,8 +17,9 @@ import {
   type BookmarkRow,
   type CapturedBookmark,
 } from "./db.ts";
+import { getManualConsoleSnippet } from "./dom-collector.ts";
 import { fetchFromFxTwitter, parseFxPayload } from "./fxtwitter.ts";
-import { captureFromSafari, getManualConsoleSnippet } from "./safari.ts";
+import { captureFromSafari } from "./safari.ts";
 
 function parseArgs(argv: string[]) {
   const flags = new Map<string, string | boolean>();
@@ -83,6 +86,11 @@ function printRows(rows: BookmarkRow[], asJson = false) {
   }
 }
 
+async function cmdLogin(flags: Map<string, string | boolean>) {
+  const profileDir = typeof flags.get("profile") === "string" ? String(flags.get("profile")) : undefined;
+  await loginToX(profileDir);
+}
+
 async function cmdCapture(flags: Map<string, string | boolean>) {
   if (flags.get("print-js")) {
     console.log(getManualConsoleSnippet());
@@ -91,38 +99,64 @@ async function cmdCapture(flags: Map<string, string | boolean>) {
 
   const db = openDb();
   const knownIds = getKnownIds(db);
+  const engine = flags.get("engine") === "safari" ? "safari" : "browser";
   const full = Boolean(flags.get("full"));
   const allowFolder = Boolean(flags.get("allow-folder"));
+  const headed = Boolean(flags.get("headed"));
   const maxItems = flags.has("max") ? Number(flags.get("max")) : undefined;
   const stopAfterKnown = flags.has("stop-after") ? Number(flags.get("stop-after")) : 15;
   const scrollDelayMs = flags.has("delay-ms") ? Number(flags.get("delay-ms")) : 1200;
+  const targetUrl = typeof flags.get("folder-url") === "string" ? String(flags.get("folder-url")) : undefined;
+  const profileDir = typeof flags.get("profile") === "string" ? String(flags.get("profile")) : undefined;
 
+  const modeDesc = full ? "full backfill" : `incremental, stop after ${stopAfterKnown} known`;
+  console.log(`[${new Date().toISOString()}] Capturing bookmarks via ${engine} (${modeDesc})...`);
+
+  const result =
+    engine === "safari"
+      ? await captureFromSafari({
+          knownIds,
+          full,
+          allowFolder,
+          maxItems,
+          stopAfterKnown,
+          scrollDelayMs,
+          onProgress: ({ seen, added, unparsed, scrollStep }) => {
+            if (scrollStep % 3 === 0) {
+              console.log(`  scroll #${scrollStep}: seen=${seen}, new=${added}, unparsed=${unparsed}`);
+            }
+          },
+        })
+      : await captureFromBrowser({
+          knownIds,
+          profileDir,
+          targetUrl,
+          headless: !headed,
+          full,
+          allowFolder: allowFolder || Boolean(targetUrl),
+          maxItems,
+          stopAfterKnown,
+          scrollDelayMs,
+          onProgress: ({ seen, added, unparsed, scrollStep }) => {
+            if (scrollStep % 3 === 0) {
+              console.log(`  scroll #${scrollStep}: seen=${seen}, new=${added}, unparsed=${unparsed}`);
+            }
+          },
+        });
+
+  const inserted = upsertCapturedBatch(db, result.captured);
+  const folderNote = result.folderId ? ` [folder: ${result.folderName || result.folderId}]` : "";
   console.log(
-    `Attaching to Safari x.com/i/bookmarks tab (${full ? "full backfill" : `incremental, stop after ${stopAfterKnown} known`})...`
+    `Capture finished (${result.stoppedReason})${folderNote}: scanned ${result.captured.length}, added ${inserted} new, unparsed ${result.unparsedCount}.`
   );
 
-  const { captured, stoppedReason, unparsedCount, folderId, folderName } = await captureFromSafari({
-    knownIds,
-    full,
-    allowFolder,
-    maxItems,
-    stopAfterKnown,
-    scrollDelayMs,
-    onProgress: ({ seen, added, unparsed, scrollStep }) => {
-      if (scrollStep % 3 === 0) {
-        console.log(`  scroll #${scrollStep}: seen=${seen}, new=${added}, unparsed=${unparsed}`);
-      }
-    },
-  });
-
-  const inserted = upsertCapturedBatch(db, captured);
-  const folderNote = folderId ? ` [folder: ${folderName || folderId}]` : "";
-  console.log(
-    `Capture finished (${stoppedReason})${folderNote}: scanned ${captured.length}, added ${inserted} new, unparsed ${unparsedCount}.`
-  );
-
-  if (["logged-out", "wrong-page", "hidden-tab", "rate-limited", "stalled"].includes(stoppedReason)) {
-    console.warn(`Warning: capture stopped early due to '${stoppedReason}'. Saved all ${captured.length} items seen so far.`);
+  if (result.stoppedReason === "logged-out") {
+    throw new Error("X session is logged out or expired. Run 'bun run login' to sign back in.");
+  }
+  if (["wrong-page", "hidden-tab", "rate-limited", "stalled"].includes(result.stoppedReason)) {
+    console.warn(
+      `Warning: capture stopped early due to '${result.stoppedReason}'. Saved all ${result.captured.length} items seen so far.`
+    );
   }
 }
 
@@ -174,6 +208,31 @@ async function cmdHydrate(flags: Map<string, string | boolean>) {
     if (i + 1 < pending.length && delayMs > 0) {
       await Bun.sleep(delayMs);
     }
+  }
+}
+
+async function cmdCron(positional: string[], flags: Map<string, string | boolean>) {
+  const sub = positional[0] || "status";
+  switch (sub) {
+    case "install":
+      await installCron({
+        every: typeof flags.get("every") === "string" ? String(flags.get("every")) : undefined,
+        runAtLoad: Boolean(flags.get("run-at-load")),
+        threads: Boolean(flags.get("threads")),
+      });
+      break;
+    case "uninstall":
+      await uninstallCron();
+      break;
+    case "run":
+      await runCronNow();
+      break;
+    case "status":
+      await cronStatus();
+      break;
+    default:
+      console.error("Usage: bun run cron <install|uninstall|status|run> [--every 1h] [--run-at-load] [--threads]");
+      process.exit(1);
   }
 }
 
@@ -356,6 +415,9 @@ async function main() {
   const { flags, positional } = parseArgs(rest);
 
   switch (command) {
+    case "login":
+      await cmdLogin(flags);
+      break;
     case "sync":
       await cmdCapture(flags);
       await cmdHydrate(flags);
@@ -365,6 +427,9 @@ async function main() {
       break;
     case "hydrate":
       await cmdHydrate(flags);
+      break;
+    case "cron":
+      await cmdCron(positional, flags);
       break;
     case "add":
       await cmdAdd(positional, flags);
@@ -388,12 +453,14 @@ async function main() {
       cmdReindex();
       break;
     default:
-      console.log(`x-bookmarks — local X bookmark indexer (DOM capture + FxTwitter v2 + SQLite FTS5)
+      console.log(`x-bookmarks — local X bookmark indexer (Playwright persistent profile + FxTwitter v2 + SQLite FTS5)
 
 Commands:
-  bun run sync [--full] [--max N] [--threads]    Capture from Safari tab, then hydrate via FxTwitter
-  bun run capture [--full] [--allow-folder] [--print-js]
+  bun run login                                  Open Chromium once to sign in and save persistent X session
+  bun run sync [--full] [--headed] [--threads]   Capture new bookmarks (headless) + hydrate via FxTwitter
+  bun run capture [--engine browser|safari] [--full] [--headed] [--folder-url URL] [--print-js]
   bun run hydrate [--limit N] [--retry-errors] [--threads]
+  bun run cron <install|status|run|uninstall> [--every 1h] [--run-at-load] [--threads]
   bun run add <url-or-id...> [--threads]         Add and hydrate specific tweet URLs or IDs
   bun run import <file.json|txt> [--folder name] Import exported JSON or URL list
   bun run search <query> [--raw] [--author u] [--domain d] [--folder f] [--tag t] [--limit N] [--json]
