@@ -1,13 +1,18 @@
 import { readFileSync } from "node:fs";
 import {
+  addTag,
+  getBookmarkById,
   getKnownIds,
   getPendingHydration,
   getStats,
+  listRecentBookmarks,
   openDb,
   rebuildFts,
+  removeTag,
   saveHydrated,
   searchBookmarks,
-  upsertCaptured,
+  upsertCapturedBatch,
+  type BookmarkRow,
   type CapturedBookmark,
 } from "./db.ts";
 import { fetchFromFxTwitter, parseFxPayload } from "./fxtwitter.ts";
@@ -55,6 +60,29 @@ function parseTweetRef(input: string): { id: string; url: string; handle: string
   return null;
 }
 
+function printRows(rows: BookmarkRow[], asJson = false) {
+  if (asJson) {
+    console.log(JSON.stringify(rows, null, 2));
+    return;
+  }
+  if (rows.length === 0) {
+    console.log("No matching bookmarks.");
+    return;
+  }
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const titlePrefix = r.article_title ? `[Article] ${r.article_title} — ` : "";
+    const body = titlePrefix + (r.text || r.article_text || r.dom_text || "(no text)");
+    const snippet = body.replace(/\s+/g, " ").slice(0, 180);
+    const date = r.created_timestamp
+      ? new Date(r.created_timestamp * 1000).toISOString().slice(0, 10)
+      : (r.created_at || "").slice(0, 10);
+    console.log(`${i + 1}. @${r.author_handle || "unknown"} (${date || "n/a"}) — ${r.url}`);
+    console.log(`   ${snippet}${body.length > 180 ? "..." : ""}`);
+    if (r.domains) console.log(`   domains: ${r.domains}`);
+  }
+}
+
 async function cmdCapture(flags: Map<string, string | boolean>) {
   if (flags.get("print-js")) {
     console.log(getManualConsoleSnippet());
@@ -64,31 +92,38 @@ async function cmdCapture(flags: Map<string, string | boolean>) {
   const db = openDb();
   const knownIds = getKnownIds(db);
   const full = Boolean(flags.get("full"));
+  const allowFolder = Boolean(flags.get("allow-folder"));
   const maxItems = flags.has("max") ? Number(flags.get("max")) : undefined;
   const stopAfterKnown = flags.has("stop-after") ? Number(flags.get("stop-after")) : 15;
   const scrollDelayMs = flags.has("delay-ms") ? Number(flags.get("delay-ms")) : 1200;
 
-  console.log(`Attaching to Safari x.com/i/bookmarks tab (${full ? "full backfill" : `incremental, stop after ${stopAfterKnown} known`})...`);
+  console.log(
+    `Attaching to Safari x.com/i/bookmarks tab (${full ? "full backfill" : `incremental, stop after ${stopAfterKnown} known`})...`
+  );
 
-  const { captured, stoppedReason } = await captureFromSafari({
+  const { captured, stoppedReason, unparsedCount, folderId, folderName } = await captureFromSafari({
     knownIds,
     full,
+    allowFolder,
     maxItems,
     stopAfterKnown,
     scrollDelayMs,
-    onProgress: ({ seen, added, scrollStep }) => {
+    onProgress: ({ seen, added, unparsed, scrollStep }) => {
       if (scrollStep % 3 === 0) {
-        console.log(`  scroll #${scrollStep}: seen=${seen}, new=${added}`);
+        console.log(`  scroll #${scrollStep}: seen=${seen}, new=${added}, unparsed=${unparsed}`);
       }
     },
   });
 
-  let inserted = 0;
-  for (const item of captured) {
-    if (upsertCaptured(db, item)) inserted++;
-  }
+  const inserted = upsertCapturedBatch(db, captured);
+  const folderNote = folderId ? ` [folder: ${folderName || folderId}]` : "";
+  console.log(
+    `Capture finished (${stoppedReason})${folderNote}: scanned ${captured.length}, added ${inserted} new, unparsed ${unparsedCount}.`
+  );
 
-  console.log(`Capture complete (${stoppedReason}): scanned ${captured.length}, added ${inserted} new bookmarks.`);
+  if (["logged-out", "wrong-page", "hidden-tab", "rate-limited", "stalled"].includes(stoppedReason)) {
+    console.warn(`Warning: capture stopped early due to '${stoppedReason}'. Saved all ${captured.length} items seen so far.`);
+  }
 }
 
 async function cmdHydrate(flags: Map<string, string | boolean>) {
@@ -96,6 +131,7 @@ async function cmdHydrate(flags: Map<string, string | boolean>) {
   const limit = flags.has("limit") ? Number(flags.get("limit")) : 200;
   const delayMs = flags.has("delay-ms") ? Number(flags.get("delay-ms")) : 350;
   const retryErrors = Boolean(flags.get("retry-errors"));
+  const fetchThreads = Boolean(flags.get("threads"));
 
   const pending = getPendingHydration(db, limit, retryErrors);
   if (pending.length === 0) {
@@ -103,19 +139,33 @@ async function cmdHydrate(flags: Map<string, string | boolean>) {
     return;
   }
 
-  console.log(`Hydrating ${pending.length} bookmarks via api.fxtwitter.com/2/status...`);
+  console.log(`Hydrating ${pending.length} bookmarks via api.fxtwitter.com/2/status (with fallbacks)...`);
   let ok = 0;
   let unavailable = 0;
   let errors = 0;
+  let consecutiveRateErrors = 0;
 
   for (let i = 0; i < pending.length; i++) {
     const item = pending[i];
-    const res = await fetchFromFxTwitter(item.id);
-    saveHydrated(db, item.id, res.status, res.fields, res.error ?? null);
+    const res = await fetchFromFxTwitter(item.id, { fetchThreadIfHint: fetchThreads });
+    saveHydrated(db, item.id, res.status, res.fields, res.error ?? null, res.retryAfterSeconds ?? null);
 
-    if (res.status === "ok") ok++;
-    else if (res.status === "unavailable") unavailable++;
-    else errors++;
+    if (res.status === "ok") {
+      ok++;
+      consecutiveRateErrors = 0;
+    } else if (res.status === "unavailable") {
+      unavailable++;
+      consecutiveRateErrors = 0;
+    } else {
+      errors++;
+      if (res.rateLimited) {
+        consecutiveRateErrors++;
+        if (consecutiveRateErrors >= 5) {
+          console.error("Circuit breaker tripped after 5 consecutive 429/5xx responses. Stopping cleanly.");
+          break;
+        }
+      }
+    }
 
     if ((i + 1) % 10 === 0 || i + 1 === pending.length) {
       console.log(`  [${i + 1}/${pending.length}] ok=${ok} unavailable=${unavailable} error=${errors}`);
@@ -127,13 +177,13 @@ async function cmdHydrate(flags: Map<string, string | boolean>) {
   }
 }
 
-async function cmdAdd(positional: string[]) {
+async function cmdAdd(positional: string[], flags: Map<string, string | boolean>) {
   if (positional.length === 0) {
-    console.error("Usage: bun run add <tweet-url-or-id> [...]");
+    console.error("Usage: bun run add <tweet-url-or-id> [...] [--threads]");
     process.exit(1);
   }
   const db = openDb();
-  const ids: string[] = [];
+  const batch: CapturedBookmark[] = [];
 
   for (const raw of positional) {
     const ref = parseTweetRef(raw);
@@ -141,30 +191,36 @@ async function cmdAdd(positional: string[]) {
       console.warn(`Skipping unrecognized tweet reference: ${raw}`);
       continue;
     }
-    upsertCaptured(db, {
+    batch.push({
       id: ref.id,
       url: ref.url,
       author_handle: ref.handle,
       capture_source: "manual",
     });
-    ids.push(ref.id);
   }
 
-  for (const id of ids) {
-    const res = await fetchFromFxTwitter(id);
-    saveHydrated(db, id, res.status, res.fields, res.error ?? null);
-    console.log(`${id}: ${res.status}${res.fields.author_handle ? ` (@${res.fields.author_handle})` : ""}`);
+  upsertCapturedBatch(db, batch);
+  const fetchThreads = Boolean(flags.get("threads"));
+
+  for (const item of batch) {
+    const res = await fetchFromFxTwitter(item.id, { fetchThreadIfHint: fetchThreads });
+    saveHydrated(db, item.id, res.status, res.fields, res.error ?? null, res.retryAfterSeconds ?? null);
+    const title = res.fields.article_title ? ` — [Article] ${res.fields.article_title}` : "";
+    console.log(
+      `${item.id}: ${res.status} (${res.fields.hydration_source || "none"})${res.fields.author_handle ? ` @${res.fields.author_handle}` : ""}${title}`
+    );
   }
 }
 
-function cmdImport(positional: string[]) {
+function cmdImport(positional: string[], flags: Map<string, string | boolean>) {
   const filePath = positional[0];
   if (!filePath) {
-    console.error("Usage: bun run import <file.json|file.txt>");
+    console.error("Usage: bun run import <file.json|file.txt> [--folder <name>]");
     process.exit(1);
   }
   const db = openDb();
   const rawText = readFileSync(filePath, "utf8");
+  const folderName = typeof flags.get("folder") === "string" ? String(flags.get("folder")) : null;
   const items: CapturedBookmark[] = [];
 
   try {
@@ -181,6 +237,8 @@ function cmdImport(positional: string[]) {
         created_at: entry?.created_at || null,
         dom_text: entry?.dom_text || entry?.full_text || entry?.text || null,
         capture_source: "import-json",
+        folder_id: entry?.folder_id || (folderName ? folderName.toLowerCase().replace(/\s+/g, "-") : null),
+        folder_name: entry?.folder_name || folderName,
       });
     }
   } catch {
@@ -192,61 +250,81 @@ function cmdImport(positional: string[]) {
         url: ref.url,
         author_handle: ref.handle,
         capture_source: "import-text",
+        folder_id: folderName ? folderName.toLowerCase().replace(/\s+/g, "-") : null,
+        folder_name: folderName,
       });
     }
   }
 
-  let inserted = 0;
-  for (const item of items) {
-    if (upsertCaptured(db, item)) inserted++;
-  }
+  const inserted = upsertCapturedBatch(db, items);
   console.log(`Imported ${items.length} records (${inserted} new). Run 'bun run hydrate' to enrich via FxTwitter.`);
 }
 
 function cmdSearch(positional: string[], flags: Map<string, string | boolean>) {
   const db = openDb();
   const query = positional.join(" ");
-  const author = typeof flags.get("author") === "string" ? String(flags.get("author")) : undefined;
-  const domain = typeof flags.get("domain") === "string" ? String(flags.get("domain")) : undefined;
+  const rows = searchBookmarks(db, {
+    query,
+    raw: Boolean(flags.get("raw")),
+    author: typeof flags.get("author") === "string" ? String(flags.get("author")) : undefined,
+    domain: typeof flags.get("domain") === "string" ? String(flags.get("domain")) : undefined,
+    folder: typeof flags.get("folder") === "string" ? String(flags.get("folder")) : undefined,
+    tag: typeof flags.get("tag") === "string" ? String(flags.get("tag")) : undefined,
+    limit: flags.has("limit") ? Number(flags.get("limit")) : 20,
+  });
+  printRows(rows, Boolean(flags.get("json")));
+}
+
+function cmdList(flags: Map<string, string | boolean>) {
+  const db = openDb();
   const limit = flags.has("limit") ? Number(flags.get("limit")) : 20;
-  const asJson = Boolean(flags.get("json"));
+  const by = flags.get("by") === "created" ? "created" : "bookmarked";
+  const rows = listRecentBookmarks(db, limit, by);
+  printRows(rows, Boolean(flags.get("json")));
+}
 
-  const rows = searchBookmarks(db, { query, author, domain, limit });
-  if (asJson) {
-    console.log(JSON.stringify(rows, null, 2));
+function cmdTag(positional: string[]) {
+  const [action, idOrRef, ...tagWords] = positional;
+  const db = openDb();
+  if (action === "add" && idOrRef && tagWords.length > 0) {
+    const ref = parseTweetRef(idOrRef);
+    const id = ref?.id || idOrRef;
+    for (const t of tagWords) addTag(db, id, t);
+    console.log(`Tagged ${id}: ${tagWords.join(", ")}`);
     return;
   }
-
-  if (rows.length === 0) {
-    console.log("No matching bookmarks.");
+  if ((action === "rm" || action === "remove") && idOrRef && tagWords.length > 0) {
+    const ref = parseTweetRef(idOrRef);
+    const id = ref?.id || idOrRef;
+    for (const t of tagWords) removeTag(db, id, t);
+    console.log(`Removed tags from ${id}: ${tagWords.join(", ")}`);
     return;
   }
-
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    const body = (r.article_title ? `[Article] ${r.article_title} — ` : "") + (r.text || r.dom_text || "(no text)");
-    const snippet = body.replace(/\s+/g, " ").slice(0, 180);
-    const date = r.created_timestamp
-      ? new Date(r.created_timestamp * 1000).toISOString().slice(0, 10)
-      : (r.created_at || "").slice(0, 10);
-    console.log(`${i + 1}. @${r.author_handle || "unknown"} (${date || "n/a"}) — ${r.url}`);
-    console.log(`   ${snippet}${body.length > 180 ? "..." : ""}`);
-    if (r.domains) console.log(`   domains: ${r.domains}`);
+  if (action === "show" && idOrRef) {
+    const ref = parseTweetRef(idOrRef);
+    const info = getBookmarkById(db, ref?.id || idOrRef);
+    console.log(info.tags.length > 0 ? info.tags.join(", ") : "(no tags)");
+    return;
   }
+  console.error("Usage: bun run tag <add|rm|show> <tweet-id-or-url> [tags...]");
+  process.exit(1);
 }
 
 function cmdStats() {
   const db = openDb();
   const stats = getStats(db);
-  console.log(`Total bookmarks: ${stats.total}`);
-  for (const s of stats.byStatus) {
-    console.log(`  ${s.hydration_status}: ${s.count}`);
-  }
+  console.log(`Total bookmarks: ${stats.total} (articles: ${stats.articles}, threads: ${stats.threads})`);
+  console.log("By status:");
+  for (const s of stats.byStatus) console.log(`  ${s.hydration_status}: ${s.count}`);
+  console.log("By source:");
+  for (const s of stats.bySource) console.log(`  ${s.source}: ${s.count}`);
   if (stats.topAuthors.length > 0) {
     console.log("Top authors:");
-    for (const a of stats.topAuthors) {
-      console.log(`  @${a.author_handle}: ${a.count}`);
-    }
+    for (const a of stats.topAuthors) console.log(`  @${a.author_handle}: ${a.count}`);
+  }
+  if (stats.topDomains.length > 0) {
+    console.log("Top domains:");
+    for (const d of stats.topDomains) console.log(`  ${d.domain}: ${d.count}`);
   }
 }
 
@@ -266,7 +344,7 @@ function cmdReindex() {
         count++;
       }
     } catch {
-      // skip malformed rows
+      // skip malformed or non-fx rows
     }
   }
   rebuildFts(db);
@@ -289,13 +367,19 @@ async function main() {
       await cmdHydrate(flags);
       break;
     case "add":
-      await cmdAdd(positional);
+      await cmdAdd(positional, flags);
       break;
     case "import":
-      cmdImport(positional);
+      cmdImport(positional, flags);
       break;
     case "search":
       cmdSearch(positional, flags);
+      break;
+    case "list":
+      cmdList(flags);
+      break;
+    case "tag":
+      cmdTag(positional);
       break;
     case "stats":
       cmdStats();
@@ -304,17 +388,20 @@ async function main() {
       cmdReindex();
       break;
     default:
-      console.log(`x-bookmarks — local X bookmark indexer (Safari DOM + FxTwitter v2 + SQLite FTS5)
+      console.log(`x-bookmarks — local X bookmark indexer (DOM capture + FxTwitter v2 + SQLite FTS5)
 
 Commands:
-  bun run sync [--full] [--max N]         Capture from Safari tab, then hydrate via FxTwitter
-  bun run capture [--full] [--print-js]   Capture tweet IDs + fallback text from Safari
-  bun run hydrate [--limit N]             Hydrate pending bookmarks via api.fxtwitter.com
-  bun run add <url-or-id...>              Add and hydrate specific tweet URLs or IDs
-  bun run import <file.json|txt>          Import exported bookmarks JSON or URL list
-  bun run search <query> [--author u] [--domain d] [--limit N] [--json]
-  bun run stats                           Show index counts and top authors
-  bun run reindex                         Re-parse archived FxTwitter JSON & rebuild FTS5`);
+  bun run sync [--full] [--max N] [--threads]    Capture from Safari tab, then hydrate via FxTwitter
+  bun run capture [--full] [--allow-folder] [--print-js]
+  bun run hydrate [--limit N] [--retry-errors] [--threads]
+  bun run add <url-or-id...> [--threads]         Add and hydrate specific tweet URLs or IDs
+  bun run import <file.json|txt> [--folder name] Import exported JSON or URL list
+  bun run search <query> [--raw] [--author u] [--domain d] [--folder f] [--tag t] [--limit N] [--json]
+  bun run list [--by bookmarked|created] [--limit N] [--json]
+  bun run tag <add|rm|show> <id-or-url> [tags...]
+  bun run stats                                  Show index counts, top authors & domains
+  bun run reindex                                Re-parse archived FxTwitter JSON & rebuild FTS5
+  bun run mcp                                    Start read-only local MCP server on stdio`);
       break;
   }
 }
