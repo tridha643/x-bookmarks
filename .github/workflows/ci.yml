@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: pnpm check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm exec effect-tsgo patch
+      - run: pnpm exec tsc --version | grep -q effect-tsgo
+      - run: pnpm check
+
+  mutation:
+    name: mutation (changed code)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/cache@v4
+        with:
+          path: .fallow/mutation
+          key: fallow-mutation-${{ github.head_ref }}-${{ github.sha }}
+          restore-keys: |
+            fallow-mutation-${{ github.head_ref }}-
+            fallow-mutation-
+      - run: pnpm exec fallow mutation --changed-since "origin/${{ github.base_ref }}" --concurrency "$(nproc)" --allow-side-effects --typecheck --verdicts mutation-verdicts.json

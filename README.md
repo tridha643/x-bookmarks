@@ -1,53 +1,88 @@
 # x-bookmarks
 
-Local-first, $0/mo index for X bookmarks using a **Playwright persistent Chromium profile + macOS `launchd` cron + FxTwitter API v2 + SQLite FTS5**.
+Local-first, $0/mo X bookmarks indexer built with **Effect v4**, **SQLite (`node:sqlite`)**, **Orama hybrid BM25 + vector search**, **local Ollama `nomic-embed-text`** (with optional OpenAI-compatible embeddings), a **Playwright incremental DOM capture + 24h macOS `launchd` cron**, a **versioned HTTP v1 API**, and a **read-only stdio MCP server**.
 
 ## Architecture
 
-1. **Capture (Deterministic DOM)**: Runs headless Chromium against a dedicated persistent profile (`data/browser-profile`) where you sign into X once. Uses an in-page `MutationObserver` collector (`src/dom-collector.ts`), stops incrementally after hitting 15 already-known bookmark IDs, protects concurrent cron runs with a PID lockfile (`data/sync.lock`), and preserves bookmark recency order via `bookmark_seq`. (Safari AppleScript is available via `--engine safari`, a DevTools console snippet via `--print-js`, and an official X API pay-per-use `--engine x-api` adapter can plug straight into the same capture interface next.)
-2. **Hydrate (FxTwitter API v2 + fallbacks)**: Calls `https://api.fxtwitter.com/2/status/{id}` (and `/2/thread/{id}` when `--threads` detects a thread) to archive full raw JSON, Draft.js X Articles rendered to Markdown (including fenced code blocks, links, and embedded tweets), quote tweets, polls, community notes, media alt text, and link domains. Falls back to `api.vxtwitter.com` and X syndication if FxTwitter errors, with source-quality ranking so truncated fallbacks never overwrite richer text.
-3. **Search & MCP (SQLite FTS5)**: Stores everything in `data/bookmarks.db` with safe FTS5 query sanitization, weighted `bm25()`, tags/folders/links tables, and a zero-dependency read-only stdio MCP server (`bun run mcp`).
+Enforced by Fallow boundary zones (`.fallowrc.json`):
+
+1. **`src/domain/`** — Pure domain models, Effect Schemas, Draft.js X Article Markdown parser, FxTwitter/VxTwitter/Syndication parsers, v1 API contract, and OpenAPI 3.1 generator. Zero imports from other internal zones.
+2. **`src/ports/`** — Effect `Context.Service` ports (`BookmarkStore`, `SearchIndex`, `Embedder`, `Hydrator`, `CaptureSource`) and typed `Data.TaggedError` failures. Imports only `domain`.
+3. **`src/control/`** — Pure Effect workflows (`searchBookmarks`, `ingestBookmarks`, `hydratePending`, `syncBookmarks`, `reindexAll`, `deleteBookmark`, `pruneBookmarks`, `updateTags`, `deleteTag`, `getHealth`, `getIndexStats`). Imports only `domain` and `ports`.
+4. **`src/adapters/`** — Concrete Effect Layers and servers:
+   - `sqlite/store.ts` — System of record (`data/bookmarks.db`), additive migrations, `pruned_bookmarks` tombstones, and `embeddings` cache keyed by `(bookmark_id, model)` with `content_hash`.
+   - `orama/index.ts` — Hybrid BM25 + 768-dim cosine vector index persisted to `data/orama.msp` via `@orama/plugin-data-persistence`.
+   - `embedder/live.ts` — Local Ollama (`nomic-embed-text` with `search_document:` / `search_query:` prefixes) and OpenAI-compatible HTTP embedders.
+   - `fxtwitter/client.ts` — Rate-limited FxTwitter API v2 status/thread hydrator with VxTwitter and X syndication fallbacks.
+   - `browser/` — Off-screen headed Chromium persistent profile capture with in-page `MutationObserver`, `/i/bookmarks` + `/i/history` support, and PID lockfile (`data/sync.lock`).
+   - `http/server.ts` — Node HTTP v1 JSON API server.
+   - `mcp/server.ts` — Read-only stdio JSON-RPC MCP server.
+   - `cron/launchd.ts` — macOS `launchd` LaunchAgent (`com.xbookmarks.sync`, default 24h incremental sync).
+5. **`src/main.ts`** — Composition root and CLI entrypoint.
 
 ## Quickstart
 
 ```bash
 # 1. Install dependencies & Chromium
-bun install
-bunx playwright install chromium
+pnpm install
+pnpm exec playwright install chromium
 
-# 2. Sign into X once (saves cookies in data/browser-profile)
-bun run login
+# 2. Ensure local Ollama + nomic-embed-text is running ($0/mo)
+brew services start ollama
+ollama pull nomic-embed-text
 
-# 3. Run initial full backfill + hydrate
-bun run capture -- --full
-bun run hydrate -- --limit 1000 --threads
+# 3. Sign into X once (saves cookies in data/browser-profile)
+pnpm login
 
-# 4. Install deterministic macOS launchd cron (runs every hour in background, 0 LLM tokens)
-bun run cron install -- --every 1h
-bun run cron status
+# 4. Run incremental sync (capture -> hydrate -> embed -> Orama persist)
+pnpm sync -- --threads
+
+# 5. Or rebuild & embed all existing SQLite rows into Orama
+pnpm reindex
+
+# 6. Install 24h incremental macOS launchd cron
+pnpm run cron -- install --every 24h
+pnpm run cron -- status
 ```
 
-## Daily commands
+## HTTP v1 API Contract
+
+Start the server with `pnpm serve` (defaults to `http://127.0.0.1:8787`; live OpenAPI 3.1 spec at `GET /v1/openapi.json`):
+
+- `GET /health` — Service health, bookmark count, vector count, pruned count, and active embedding model/dims.
+- `GET /v1/openapi.json` — OpenAPI 3.1 contract document.
+- `GET /v1/stats` — Hydration, article, thread, pruned, embedding, author, and domain metrics.
+- `POST /v1/search` — Hybrid (`hybrid`), BM25 (`fulltext`), or cosine (`vector`) search with author/domain/folder/tag/article/timestamp filters. Hybrid mode degrades gracefully to `fulltext` if Ollama is offline.
+- `GET /v1/bookmarks` — Cursor-paginated list ordered by `bookmarked` or `created` with author/domain/folder/tag filters.
+- `POST /v1/bookmarks` — Ingest tweet URLs or snowflake IDs with optional hydration and embedding.
+- `GET /v1/bookmarks/:id` — Full bookmark detail including X Article Markdown, quotes, links, tags, and thread posts.
+- `DELETE /v1/bookmarks/:id` — Prune one bookmark from SQLite and Orama. Records a tombstone in `pruned_bookmarks` by default so future syncs do not re-import it; pass `?hard=true` to allow re-import and optional `?reason=...`.
+- `POST /v1/bookmarks/prune` — Batch prune `{ ids: string[], hard?: boolean, reason?: string }`.
+- `PUT /v1/bookmarks/:id/tags` & `DELETE /v1/bookmarks/:id/tags/:tag` — Add/remove normalized tags and keep Orama synchronized.
+- `POST /v1/sync` — Trigger incremental Playwright capture, hydration, embedding, and Orama upsert.
+- `POST /v1/reindex` — Reparse archived raw JSON, compute any missing embeddings, and rebuild `data/orama.msp`.
+
+## CLI Commands
 
 ```bash
-# Manual incremental sync
-bun run sync
+pnpm run search -- "personal agent" --mode hybrid --limit 5
+pnpm run list -- --by bookmarked --limit 20
+pnpm run add -- https://x.com/user/status/1234567890 --folder Reading
+pnpm run prune -- 1234567890 --reason "no longer needed"
+pnpm run prune -- 1234567890 --hard
+pnpm run tag -- add 1234567890 ai systems
+pnpm run tag -- rm 1234567890 systems
+pnpm stats
+pnpm serve
+pnpm mcp
+```
 
-# Search (punctuation like c++, state-of-the-art, @user is handled safely)
-bun run search "c++ state-of-the-art"
-bun run search "mcp" --author karpathy --domain github.com
-bun run list --by bookmarked --limit 20
-bun run tag add <tweet-id> ai systems
-bun run stats
+## Verification Gates
 
-# Manage launchd cron
-bun run cron status
-bun run cron run
-bun run cron uninstall
+```bash
+# Typecheck (@effect/tsgo + TS 7), oxlint (strict + anti-slop + landmines), oxfmt, fallow dead-code/dupes/health, fallow architecture, Vitest, git diff --check
+pnpm check
 
-# Re-parse archived raw JSON and rebuild FTS5 locally (0 network calls)
-bun run reindex
-
-# Start local read-only MCP server (for Claude / Cursor / T3 agents)
-bun run mcp
+# Mutation testing (100% score gate on changed code with survivor typechecking)
+pnpm mutate
 ```

@@ -1,24 +1,53 @@
 {
   "name": "x-bookmarks",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
-    "login": "bun run src/cli.ts login",
-    "sync": "bun run src/cli.ts sync",
-    "capture": "bun run src/cli.ts capture",
-    "hydrate": "bun run src/cli.ts hydrate",
-    "cron": "bun run src/cli.ts cron",
-    "search": "bun run src/cli.ts search",
-    "list": "bun run src/cli.ts list",
-    "tag": "bun run src/cli.ts tag",
-    "stats": "bun run src/cli.ts stats",
-    "add": "bun run src/cli.ts add",
-    "import": "bun run src/cli.ts import",
-    "reindex": "bun run src/cli.ts reindex",
-    "mcp": "bun run src/mcp.ts"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint -c oxlint.config.ts src test",
+    "fmt": "oxfmt src test",
+    "fmt:check": "oxfmt --check src test",
+    "check": "pnpm typecheck && pnpm lint && pnpm fmt:check && fallow && fallow architecture && pnpm test && git diff HEAD --check",
+    "mutate": "fallow mutation --changed-since origin/main --allow-side-effects --typecheck --verdicts mutation-verdicts.json",
+    "mutate:all": "fallow mutation src --allow-side-effects --typecheck --verdicts mutation-verdicts.json",
+    "postinstall": "effect-tsgo patch",
+    "login": "node src/main.ts login",
+    "sync": "node src/main.ts sync",
+    "hydrate": "node src/main.ts hydrate",
+    "embed": "node src/main.ts embed",
+    "search": "node src/main.ts search",
+    "list": "node src/main.ts list",
+    "add": "node src/main.ts add",
+    "prune": "node src/main.ts prune",
+    "tag": "node src/main.ts tag",
+    "stats": "node src/main.ts stats",
+    "reindex": "node src/main.ts reindex",
+    "cron": "node src/main.ts cron",
+    "serve": "node src/main.ts serve",
+    "mcp": "node src/main.ts mcp"
   },
   "dependencies": {
-    "playwright": "^1.65.1"
+    "@gdp-ts/core": "0.1.0",
+    "@orama/orama": "3.1.18",
+    "@orama/plugin-data-persistence": "3.1.18",
+    "effect": "4.0.0-rc.112",
+    "playwright": "1.65.1"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "^0.24.3",
+    "@interfere/landmines": "0.0.0",
+    "@oxlint/plugins": "1.90.0",
+    "@types/node": "^24",
+    "fallow": "3.37.0",
+    "oxfmt": "0.77.0",
+    "oxlint": "1.90.0",
+    "typescript": "^7",
+    "vitest": "^5.1.0"
   }
 }

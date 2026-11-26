@@ -1,10 +1,12 @@
 node_modules/
+.fallow/
 .venv/
 __pycache__/
 *.db
 *.db-wal
 *.db-shm
 *.sqlite
+*.msp
 data/
 exports/
 .env
