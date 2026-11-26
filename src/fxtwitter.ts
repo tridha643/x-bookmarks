@@ -6,6 +6,20 @@ const FX_THREAD_BASE = "https://api.fxtwitter.com/2/thread";
 const VX_STATUS_BASE = "https://api.vxtwitter.com/Twitter/status";
 const SYNDICATION_BASE = "https://cdn.syndication.twimg.com/tweet-result";
 
+// Client-side rate limit shared by every outbound request (status, thread, fallbacks), so one
+// bookmark with a thread can't burst. Default ~1 request per 1.5-2s; override via env.
+const MIN_REQUEST_INTERVAL_MS = Number(process.env.X_BOOKMARKS_MIN_REQUEST_MS ?? 1500);
+const REQUEST_JITTER_MS = 500;
+let nextRequestAt = 0;
+
+async function throttledFetch(url: string, init?: RequestInit): Promise<Response> {
+  const now = Date.now();
+  const startAt = Math.max(now, nextRequestAt);
+  nextRequestAt = startAt + MIN_REQUEST_INTERVAL_MS + Math.random() * REQUEST_JITTER_MS;
+  if (startAt > now) await Bun.sleep(startAt - now);
+  return fetch(url, init);
+}
+
 export interface FxFetchResult {
   status: "ok" | "unavailable" | "error";
   fields: HydratedFields;
@@ -382,14 +396,14 @@ async function fetchFxEndpoint(endpointUrl: string): Promise<{
   while (attempt < 3) {
     attempt++;
     try {
-      const res = await fetch(endpointUrl, {
+      const res = await throttledFetch(endpointUrl, {
         headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
       });
       const retryAfterSeconds = parseRetryAfter(res.headers.get("retry-after"));
 
       if (res.status === 429 || res.status >= 500) {
         if (attempt < 3) {
-          const waitMs = retryAfterSeconds ? Math.min(retryAfterSeconds * 1000, 15000) : 1500 * attempt * attempt;
+          const waitMs = retryAfterSeconds ? Math.min(retryAfterSeconds * 1000, 120000) : 5000 * attempt * attempt;
           await Bun.sleep(waitMs);
           continue;
         }
@@ -416,7 +430,7 @@ async function fetchFxEndpoint(endpointUrl: string): Promise<{
 
 async function fetchFromVxTwitter(id: string): Promise<FxFetchResult | null> {
   try {
-    const res = await fetch(`${VX_STATUS_BASE}/${encodeURIComponent(id)}`, {
+    const res = await throttledFetch(`${VX_STATUS_BASE}/${encodeURIComponent(id)}`, {
       headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
     });
     if (!res.ok) return null;
@@ -459,7 +473,7 @@ function syndicationToken(id: string): string {
 async function fetchFromSyndication(id: string): Promise<FxFetchResult | null> {
   try {
     const token = syndicationToken(id);
-    const res = await fetch(`${SYNDICATION_BASE}?id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`, {
+    const res = await throttledFetch(`${SYNDICATION_BASE}?id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`, {
       headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
     });
     if (!res.ok) return null;
