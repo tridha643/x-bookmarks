@@ -70,11 +70,16 @@ function acquireLock(lockPath = DEFAULT_LOCK_FILE): () => void {
 
 async function launchProfile(profileDir: string, headless: boolean): Promise<BrowserContext> {
   mkdirSync(profileDir, { recursive: true });
+  // X blocks headless Chromium, and the headless shell can't decrypt (and then drops) cookies
+  // written by headed Chromium. So always run headed; "headless" runs just park the window off-screen.
   return chromium.launchPersistentContext(profileDir, {
-    headless,
+    headless: false,
     viewport: { width: 1280, height: 900 },
     locale: "en-US",
-    args: ["--disable-blink-features=AutomationControlled"],
+    args: [
+      "--disable-blink-features=AutomationControlled",
+      ...(headless ? ["--window-position=-32000,-32000"] : []),
+    ],
   });
 }
 
@@ -101,7 +106,7 @@ export async function loginToX(
     while (Date.now() < deadline) {
       if (page.isClosed()) break;
       const url = page.url();
-      const onBookmarks = /https:\/\/(?:x|twitter)\.com\/i\/bookmarks/i.test(url);
+      const onBookmarks = /https:\/\/(?:x|twitter)\.com\/i\/(?:bookmarks|history)/i.test(url);
       if (onBookmarks) {
         const hasContent = await page
           .evaluate(() =>
@@ -196,6 +201,7 @@ export async function captureFromBrowser(opts: BrowserCaptureOptions): Promise<{
     let consecutiveKnown = 0;
     let scrollStep = 0;
     let stableBottomMs = 0;
+    let idleSteps = 0;
     let retryAttempts = 0;
     let lastScrollHeight = 0;
     let unparsedCount = 0;
@@ -210,11 +216,11 @@ export async function captureFromBrowser(opts: BrowserCaptureOptions): Promise<{
         continue;
       }
 
-      if (state.pathname.includes("/login") || state.pathname.includes("/i/flow/login")) {
+      if (/\/login|\/i\/flow\/login|\/i\/jf\/onboarding/.test(state.pathname)) {
         stoppedReason = "logged-out";
         break;
       }
-      if (!state.pathname.startsWith("/i/bookmarks")) {
+      if (!/^\/i\/(?:bookmarks|history)/.test(state.pathname)) {
         stoppedReason = "wrong-page";
         break;
       }
@@ -306,6 +312,13 @@ export async function captureFromBrowser(opts: BrowserCaptureOptions): Promise<{
 
       const atBottom = scrollInfo.after === scrollInfo.before && scrollInfo.scrollHeight === lastScrollHeight;
       lastScrollHeight = scrollInfo.scrollHeight;
+
+      // X's /i/history page keeps shifting scrollHeight at the end, so atBottom may never settle.
+      idleSteps = addedThisStep === 0 ? idleSteps + 1 : 0;
+      if (idleSteps >= 40) {
+        stoppedReason = "end-of-feed";
+        break;
+      }
 
       if (addedThisStep === 0 && atBottom) {
         stableBottomMs += scrollDelayMs;
