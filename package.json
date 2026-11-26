@@ -1,0 +1,16 @@
+{
+  "name": "x-bookmarks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync": "bun run src/cli.ts sync",
+    "capture": "bun run src/cli.ts capture",
+    "hydrate": "bun run src/cli.ts hydrate",
+    "search": "bun run src/cli.ts search",
+    "stats": "bun run src/cli.ts stats",
+    "add": "bun run src/cli.ts add",
+    "import": "bun run src/cli.ts import",
+    "reindex": "bun run src/cli.ts reindex"
+  }
+}
