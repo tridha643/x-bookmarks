@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { count, create, insert, insertMultiple, remove, search, type AnyOrama } from "@orama/orama";
 import { persistToFile, restoreFromFile } from "@orama/plugin-data-persistence/server";
@@ -128,22 +128,38 @@ const executeOramaSearch = (db: AnyOrama, query: SearchIndexQuery) => {
   return search(db, { ...baseParams, mode: "fulltext", term: query.term, boost: BOOSTS });
 };
 
+const readMtimeMs = (path: string | null): number | null => {
+  if (path === null || !existsSync(path)) return null;
+  return statSync(path).mtimeMs;
+};
+
 export const makeOramaSearchIndex = (
   initialDb: AnyOrama,
   dims: number,
   snapshotPath: string | null,
 ): SearchIndexShape => {
   let db: AnyOrama = initialDb;
+  let loadedMtimeMs = readMtimeMs(snapshotPath);
+
+  const ensureFresh = async (): Promise<void> => {
+    const diskMtime = readMtimeMs(snapshotPath);
+    if (diskMtime !== null && diskMtime !== loadedMtimeMs) {
+      db = await loadOrCreateDb(snapshotPath, dims);
+      loadedMtimeMs = diskMtime;
+    }
+  };
 
   return {
     upsert: (doc) =>
       tryOrama("upsert", async () => {
+        await ensureFresh();
         await Promise.resolve(remove(db, doc.bookmark.id)).catch(() => false);
         await insert(db, toOramaDoc(doc));
       }),
 
     remove: (id) =>
       tryOrama("remove", async () => {
+        await ensureFresh();
         try {
           return await Promise.resolve(remove(db, id));
         } catch {
@@ -153,6 +169,7 @@ export const makeOramaSearchIndex = (
 
     search: (query) =>
       tryOrama("search", async () => {
+        await ensureFresh();
         const raw = await executeOramaSearch(db, query);
         const hits: SearchIndexHit[] = raw.hits.map((h) => ({
           id: Schema.decodeSync(BookmarkId)(String(h.id)),
@@ -173,10 +190,17 @@ export const makeOramaSearchIndex = (
       tryOrama("persist", async () => {
         if (snapshotPath === null) return;
         mkdirSync(dirname(snapshotPath), { recursive: true });
-        await persistToFile(db, "binary", snapshotPath);
+        const tmpPath = `${snapshotPath}.${process.pid}.tmp`;
+        await persistToFile(db, "binary", tmpPath);
+        renameSync(tmpPath, snapshotPath);
+        loadedMtimeMs = readMtimeMs(snapshotPath);
       }),
 
-    count: () => tryOrama("count", async () => count(db)),
+    count: () =>
+      tryOrama("count", async () => {
+        await ensureFresh();
+        return count(db);
+      }),
   };
 };
 

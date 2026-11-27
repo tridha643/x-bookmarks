@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -209,6 +209,82 @@ describe("adapters/orama/index", () => {
         }).pipe(Effect.provide(OramaSearchIndexLive(snap, TEST_DIMS))),
       );
       expect(restoredCount).toBe(1);
+
+      // Long-running reader does NOT wipe in-memory docs when snapshot is absent or unchanged,
+      // and reloads automatically across count, search, upsert, and remove when disk mtime advances
+      const unpersistedSnap = join(dir, "never-written.msp");
+      const unpersistedCount = await Effect.runPromise(
+        Effect.gen(function* () {
+          const idx = yield* SearchIndex;
+          yield* idx.upsert({ bookmark: makeDoc("41"), vector: [1, 0, 0, 0] });
+          return yield* idx.count();
+        }).pipe(Effect.provide(OramaSearchIndexLive(unpersistedSnap, TEST_DIMS))),
+      );
+      expect(unpersistedCount).toBe(1);
+
+      const unchangedCount = await Effect.runPromise(
+        Effect.gen(function* () {
+          const idx = yield* SearchIndex;
+          yield* idx.upsert({ bookmark: makeDoc("49"), vector: [0, 0, 1, 0] });
+          return yield* idx.count();
+        }).pipe(Effect.provide(OramaSearchIndexLive(snap, TEST_DIMS))),
+      );
+      expect(unchangedCount).toBe(2);
+
+      let tick = Date.now() + 5000;
+      const writeExternal = async (id: string, text: string) => {
+        await Effect.runPromise(
+          Effect.gen(function* () {
+            const writer = yield* SearchIndex;
+            yield* writer.upsert({ bookmark: makeDoc(id, { text }), vector: [0, 1, 0, 0] });
+            yield* writer.persist();
+          }).pipe(Effect.provide(OramaSearchIndexLive(snap, TEST_DIMS))),
+        );
+        tick += 2000;
+        utimesSync(snap, new Date(tick), new Date(tick));
+      };
+
+      const reloadedCheck = await Effect.runPromise(
+        Effect.gen(function* () {
+          const readerA = yield* SearchIndex;
+          expect(yield* readerA.count()).toBe(1);
+          yield* Effect.promise(() => writeExternal("43", "External sync update"));
+          const afterCount = yield* readerA.count();
+          return afterCount;
+        }).pipe(Effect.provide(OramaSearchIndexLive(snap, TEST_DIMS))),
+      );
+      expect(reloadedCheck).toBe(2);
+
+      const reloadedSearch = await Effect.runPromise(
+        Effect.gen(function* () {
+          const readerB = yield* SearchIndex;
+          yield* Effect.promise(() => writeExternal("44", "Fresh searchable doc"));
+          return yield* readerB.search({
+            term: "Fresh searchable",
+            mode: "fulltext",
+            vector: null,
+            filters: undefined,
+            limit: 5,
+            similarity: 0.5,
+          });
+        }).pipe(Effect.provide(OramaSearchIndexLive(snap, TEST_DIMS))),
+      );
+      expect(reloadedSearch.hits.map((h) => h.id)).toEqual(["44"]);
+
+      const reloadedMutate = await Effect.runPromise(
+        Effect.gen(function* () {
+          const readerC = yield* SearchIndex;
+          yield* Effect.promise(() => writeExternal("45", "Upsert target"));
+          yield* readerC.upsert({ bookmark: makeDoc("46", { text: "Added on fresh" }), vector: [0, 0, 1, 0] });
+          const cAfterUpsert = yield* readerC.count();
+          yield* Effect.promise(() => writeExternal("47", "Remove target"));
+          const removed = yield* readerC.remove(bid("47"));
+          rmSync(snap, { force: true });
+          const cAfterUnlink = yield* readerC.count();
+          return { cAfterUpsert, removed, cAfterUnlink };
+        }).pipe(Effect.provide(OramaSearchIndexLive(snap, TEST_DIMS))),
+      );
+      expect(reloadedMutate).toEqual({ cAfterUpsert: 5, removed: true, cAfterUnlink: 4 });
 
       // Corrupt file falls back cleanly to a fresh empty index
       writeFileSync(snap, "corrupted-binary-payload", "utf8");

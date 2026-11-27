@@ -21,6 +21,7 @@ import {
   updateTags,
 } from "../../control/manage.ts";
 import { searchBookmarks } from "../../control/search.ts";
+import { handleMcpPayload } from "../mcp/server.ts";
 import { createHttpServer, type HttpApiHandlers } from "./server.ts";
 
 describe("adapters/http/server", () => {
@@ -66,7 +67,7 @@ describe("adapters/http/server", () => {
       reindex: (req) => runtime.runPromise(reindexAll(req)),
     };
 
-    const server = createHttpServer(handlers);
+    const server = createHttpServer(handlers, { mcp: (payload) => handleMcpPayload(payload, handlers) });
     await new Promise<void>((res) => server.listen(0, "127.0.0.1", () => res()));
     const addr = server.address() as AddressInfo;
     baseUrl = `http://127.0.0.1:${addr.port}`;
@@ -288,8 +289,184 @@ describe("adapters/http/server", () => {
       const r2 = await fetch(`http://127.0.0.1:${addr.port}/v1/stats`);
       expect(r2.status).toBe(500);
       expect(await r2.json()).toEqual({ error: { code: "internal", message: "string-err" } });
+
+      // When mcp option is omitted, POST /mcp returns 503 unavailable
+      const noMcp = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+        method: "POST",
+        body: JSON.stringify({ id: 1, method: "ping" }),
+      });
+      expect(noMcp.status).toBe(503);
+      expect(await noMcp.json()).toEqual({ error: { code: "unavailable", message: "MCP endpoint is not enabled" } });
     } finally {
       await new Promise<void>((res) => failingServer.close(() => res()));
+    }
+  });
+
+  it("serves Streamable HTTP MCP on /mcp (single, batch, notifications, CORS, 405, 400) and Bearer auth", async () => {
+    // OPTIONS and DELETE return 204 with MCP headers
+    const optRes = await fetch(`${baseUrl}/mcp`, { method: "OPTIONS" });
+    expect(optRes.status).toBe(204);
+    expect(optRes.headers.get("mcp-protocol-version")).toBeNull();
+    expect(optRes.headers.get("access-control-allow-origin")).toBe("*");
+    expect(optRes.headers.get("access-control-allow-methods")).toBe("GET, POST, DELETE, OPTIONS");
+    expect(optRes.headers.get("access-control-allow-headers")).toBe(
+      "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version",
+    );
+
+    const delRes = await fetch(`${baseUrl}/mcp`, { method: "DELETE" });
+    expect(delRes.status).toBe(204);
+
+    // GET returns 405 with Allow header and guidance message
+    const getRes = await fetch(`${baseUrl}/mcp`, { method: "GET" });
+    expect(getRes.status).toBe(405);
+    expect(getRes.headers.get("allow")).toBe("POST, DELETE, OPTIONS");
+    expect(await getRes.json()).toEqual({
+      error: { code: "bad_request", message: "use POST /mcp for Streamable HTTP MCP requests" },
+    });
+
+    // Malformed JSON returns 400 JSON-RPC parse error
+    const badRes = await fetch(`${baseUrl}/mcp`, { method: "POST", body: "{not-json" });
+    expect(badRes.status).toBe(400);
+    expect(await badRes.json()).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32700, message: "Parse error" },
+    });
+
+    // Notification returns 202 Accepted
+    const notifRes = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+    });
+    expect(notifRes.status).toBe(202);
+
+    // Single initialize + tools/list + tools/call
+    const initRes = await reqJson("/mcp", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+    });
+    expect(initRes.status).toBe(200);
+    expect((initRes.body.result as { protocolVersion: string }).protocolVersion).toBe("2025-06-18");
+
+    const statsCall = await reqJson("/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "get_bookmark_stats", arguments: {} },
+      }),
+    });
+    expect(statsCall.status).toBe(200);
+    expect(
+      (statsCall.body.result as { structuredContent: { embeddingModel: string } }).structuredContent.embeddingModel,
+    ).toBe("nomic-embed-text");
+
+    // Batch with mixed request + notification returns 200 array; notification-only batch returns 202
+    const batchRes = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      body: JSON.stringify([
+        { jsonrpc: "2.0", id: 2, method: "ping" },
+        { jsonrpc: "2.0", method: "notifications/initialized" },
+      ]),
+    });
+    expect(batchRes.status).toBe(200);
+    expect(await batchRes.json()).toEqual([{ jsonrpc: "2.0", id: 2, result: {} }]);
+
+    const batchNotif = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      body: JSON.stringify([{ jsonrpc: "2.0", method: "notifications/initialized" }]),
+    });
+    expect(batchNotif.status).toBe(202);
+
+    // Optional Bearer auth protects /v1/* and /mcp while keeping /health and OPTIONS accessible
+    const authServer = createHttpServer(
+      {
+        health: async () => ({
+          status: "ok",
+          totalBookmarks: 0,
+          indexedVectors: 0,
+          prunedCount: 0,
+          embeddingModel: "nomic-embed-text",
+          embeddingDims: TEST_DIMS,
+        }),
+        stats: async () => ({
+          total: 0,
+          articles: 0,
+          threads: 0,
+          pruned: 0,
+          embedded: 0,
+          indexedVectors: 0,
+          byStatus: [],
+          bySource: [],
+          topAuthors: [],
+          topDomains: [],
+        }),
+        search: async () => ({ mode: "hybrid", total: 0, elapsedMs: 0, hits: [] }),
+        list: async () => ({ items: [], nextCursor: null }),
+        getById: async () => null,
+        ingest: async () => ({
+          added: 0,
+          existing: 0,
+          skippedPruned: 0,
+          skippedInvalid: 0,
+          hydrated: 0,
+          indexed: 0,
+          ids: [],
+        }),
+        remove: async (id) => ({ id, deleted: false, tombstoned: false, removedFromIndex: false }),
+        prune: async () => ({ requested: 0, deletedIds: [], notFoundIds: [], tombstoned: true }),
+        updateTags: async () => null,
+        deleteTag: async () => null,
+        sync: async () => ({
+          captured: 0,
+          added: 0,
+          skippedPruned: 0,
+          stoppedReason: "end-of-feed",
+          hydratedOk: 0,
+          hydratedUnavailable: 0,
+          hydratedErrors: 0,
+          embedded: 0,
+          indexed: 0,
+        }),
+        reindex: async () => ({ reparsed: 0, embedded: 0, indexed: 0 }),
+      },
+      { authToken: "top-secret-token", mcp: async () => ({ jsonrpc: "2.0", id: 1, result: {} }) },
+    );
+    await new Promise<void>((res) => authServer.listen(0, "127.0.0.1", () => res()));
+    const authAddr = authServer.address() as AddressInfo;
+    const authBase = `http://127.0.0.1:${authAddr.port}`;
+    try {
+      expect((await fetch(`${authBase}/health`)).status).toBe(200);
+      expect((await fetch(`${authBase}/mcp`, { method: "OPTIONS" })).status).toBe(204);
+      const unauth = await fetch(`${authBase}/v1/stats`);
+      expect(unauth.status).toBe(401);
+      expect(await unauth.json()).toEqual({
+        error: { code: "unauthorized", message: "missing or invalid bearer token" },
+      });
+      expect(
+        (await fetch(`${authBase}/v1/stats`, { headers: { authorization: "X-Auth top-secret-token" } })).status,
+      ).toBe(401);
+      expect((await fetch(`${authBase}/v1/stats`, { headers: { authorization: "Bearer wrong-len" } })).status).toBe(
+        401,
+      );
+      expect(
+        (await fetch(`${authBase}/v1/stats`, { headers: { authorization: "Bearer top-secret-tokex" } })).status,
+      ).toBe(401);
+      expect(
+        (await fetch(`${authBase}/v1/stats`, { headers: { authorization: "Bearer top-secret-token" } })).status,
+      ).toBe(200);
+      expect(
+        (
+          await fetch(`${authBase}/mcp`, {
+            method: "POST",
+            headers: { authorization: "Bearer top-secret-token" },
+            body: JSON.stringify({ id: 1, method: "ping" }),
+          })
+        ).status,
+      ).toBe(200);
+    } finally {
+      await new Promise<void>((res) => authServer.close(() => res()));
     }
   });
 });

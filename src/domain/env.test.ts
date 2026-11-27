@@ -10,6 +10,7 @@ describe("domain/env", () => {
       profileDir: "/srv/x-bookmarks/data/browser-profile",
       httpHost: "127.0.0.1",
       httpPort: 8787,
+      authToken: null,
       embedProvider: "ollama",
       embedModel: "nomic-embed-text",
       embedDims: 768,
@@ -28,6 +29,7 @@ describe("domain/env", () => {
         XBM_PROFILE_DIR: "/tmp/prof",
         XBM_HTTP_HOST: "0.0.0.0",
         XBM_HTTP_PORT: "9090",
+        XBM_AUTH_TOKEN: "  secret-token  ",
         XBM_EMBED_PROVIDER: "openai",
         XBM_EMBED_MODEL: "text-embedding-3-small",
         XBM_EMBED_DIMS: "1536",
@@ -44,6 +46,7 @@ describe("domain/env", () => {
       profileDir: "/tmp/prof",
       httpHost: "0.0.0.0",
       httpPort: 9090,
+      authToken: "secret-token",
       embedProvider: "openai",
       embedModel: "text-embedding-3-small",
       embedDims: 1536,
@@ -53,6 +56,7 @@ describe("domain/env", () => {
       minRequestMs: 2500,
     });
     expect(decodeAppEnv({ XBM_EMBED_PROVIDER: "ollama" }, "/srv").embedProvider).toBe("ollama");
+    expect(decodeAppEnv({ XBM_AUTH_TOKEN: "   " }, "/srv").authToken).toBeNull();
   });
 
   it("rejects non-positive ports or invalid embed providers", () => {

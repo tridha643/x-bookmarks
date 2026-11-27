@@ -2,7 +2,17 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildPlist, cronStatus, installCron, parseIntervalSeconds, uninstallCron } from "./launchd.ts";
+import {
+  buildPlist,
+  buildServerPlist,
+  cronStatus,
+  installCron,
+  installServer,
+  parseIntervalSeconds,
+  serverStatus,
+  uninstallCron,
+  uninstallServer,
+} from "./launchd.ts";
 
 describe("adapters/cron/launchd", () => {
   it("parses interval strings with units and enforces >= 60s minimum", () => {
@@ -34,7 +44,9 @@ describe("adapters/cron/launchd", () => {
     expect(xml).toContain("<string>sync</string>\n    <string>--threads</string>");
     expect(xml).toContain("<integer>86400</integer>");
     expect(xml).toContain("<true/>");
-    expect(xml).toContain("<string>/opt/homebrew/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>");
+    expect(xml).toContain(
+      "<key>PATH</key>\n    <string>/opt/homebrew/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>",
+    );
 
     const noThreads = buildPlist({
       nodeBin: "/usr/local/bin/node",
@@ -45,6 +57,34 @@ describe("adapters/cron/launchd", () => {
     });
     expect(noThreads).not.toContain("--threads");
     expect(noThreads).toContain("<false/>");
+
+    const srvXml = buildServerPlist({
+      nodeBin: "/opt/homebrew/bin/node",
+      projectRoot: "/srv/xbm",
+      host: "127.0.0.1",
+      port: 8787,
+      authToken: "tok-123",
+    });
+    expect(srvXml).toContain("<string>com.xbookmarks.server</string>");
+    expect(srvXml).toContain("<string>/srv/xbm/src/main.ts</string>");
+    expect(srvXml).toContain("<string>serve</string>");
+    expect(srvXml).toContain("<key>KeepAlive</key>\n  <true/>");
+    expect(srvXml).toContain(
+      "<key>PATH</key>\n    <string>/opt/homebrew/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>\n    <key>XBM_HTTP_HOST</key>",
+    );
+    expect(srvXml).toContain("<key>XBM_HTTP_HOST</key>\n    <string>127.0.0.1</string>");
+    expect(srvXml).toContain("<key>XBM_HTTP_PORT</key>\n    <string>8787</string>");
+    expect(srvXml).toContain("<key>XBM_AUTH_TOKEN</key>\n    <string>tok-123</string>");
+    expect(srvXml).toContain("<string>/srv/xbm/data/server.log</string>");
+
+    const srvNoAuth = buildServerPlist({
+      nodeBin: "/opt/homebrew/bin/node",
+      projectRoot: "/srv/xbm",
+      host: "127.0.0.1",
+      port: 8787,
+      authToken: "",
+    });
+    expect(srvNoAuth).not.toContain("XBM_AUTH_TOKEN");
   });
 
   it("installs, inspects status (with log tail), and uninstalls LaunchAgent via injected runtime", () => {
@@ -152,6 +192,49 @@ describe("adapters/cron/launchd", () => {
       });
       expect(unMsg).toBe(`Unloaded and removed ${expectedPlist}`);
       expect(existsSync(expectedPlist)).toBe(false);
+
+      // Persistent HTTP/MCP server LaunchAgent lifecycle (install, status, uninstall)
+      const srvRoot = join(root, "srv-proj");
+      const srvCmds: Array<ReadonlyArray<string>> = [];
+      const srvMsg = installServer({
+        projectRoot: srvRoot,
+        runtime: {
+          homeDir,
+          uid: 501,
+          nodeBin: "/opt/bin/node",
+          execLaunchctl: (args) => {
+            srvCmds.push(args);
+            return { ok: true, output: "ok" };
+          },
+        },
+      });
+      const expectedSrvPlist = join(homeDir, "Library/LaunchAgents/com.xbookmarks.server.plist");
+      expect(srvMsg).toBe(`Installed com.xbookmarks.server (http://127.0.0.1:8787) -> ${expectedSrvPlist}`);
+      expect(existsSync(expectedSrvPlist)).toBe(true);
+      expect(existsSync(join(srvRoot, "data"))).toBe(true);
+      expect(srvCmds).toEqual([
+        ["bootout", "gui/501/com.xbookmarks.server"],
+        ["bootstrap", "gui/501", expectedSrvPlist],
+      ]);
+
+      writeFileSync(join(srvRoot, "data/server.log"), "listening on 8787\n", "utf8");
+      const srvSt = serverStatus(srvRoot, {
+        homeDir,
+        uid: 501,
+        execLaunchctl: () => ({ ok: true, output: "" }),
+      });
+      expect(srvSt).toContain("LaunchAgent: com.xbookmarks.server");
+      expect(srvSt).toContain("Status: loaded");
+      expect(srvSt).toContain("  listening on 8787");
+
+      expect(
+        uninstallServer({
+          homeDir,
+          uid: 501,
+          execLaunchctl: () => ({ ok: true, output: "" }),
+        }),
+      ).toBe(`Unloaded and removed ${expectedSrvPlist}`);
+      expect(existsSync(expectedSrvPlist)).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -790,6 +790,11 @@
       "review_key": "ab4bd8173a5b0270",
       "verdict": "equivalent",
       "note": "parseCliArgs starts i at 0 and advances by 1 or by 2 only when argv[i + 1] !== undefined, so i never exceeds argv.length and i < argv.length is equivalent to i != argv.length."
+    },
+    {
+      "review_key": "e1b3f8700f25064e",
+      "verdict": "equivalent",
+      "note": "tryOrama(\"count\", ...) operation label is only surfaced if Orama count(db) rejects, which is unreachable on a valid Orama instance."
     }
   ]
 }

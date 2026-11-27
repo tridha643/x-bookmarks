@@ -1,6 +1,6 @@
 # x-bookmarks
 
-Local-first, $0/mo X bookmarks indexer built with **Effect v4**, **SQLite (`node:sqlite`)**, **Orama hybrid BM25 + vector search**, **local Ollama `nomic-embed-text`** (with optional OpenAI-compatible embeddings), a **Playwright incremental DOM capture + 24h macOS `launchd` cron**, a **versioned HTTP v1 API**, and a **read-only stdio MCP server**.
+Local-first, $0/mo X bookmarks indexer built with **Effect v4**, **SQLite (`node:sqlite`)**, **Orama hybrid BM25 + vector search**, **local Ollama `nomic-embed-text`** (with optional OpenAI-compatible embeddings), a **Playwright incremental DOM capture + 24h macOS `launchd` cron**, a **versioned HTTP v1 API**, and a **full-API MCP server** (both **Streamable HTTP `/mcp`** over Tailscale Serve and **stdio**).
 
 ## Architecture
 
@@ -15,9 +15,9 @@ Enforced by Fallow boundary zones (`.fallowrc.json`):
    - `embedder/live.ts` — Local Ollama (`nomic-embed-text` with `search_document:` / `search_query:` prefixes) and OpenAI-compatible HTTP embedders.
    - `fxtwitter/client.ts` — Rate-limited FxTwitter API v2 status/thread hydrator with VxTwitter and X syndication fallbacks.
    - `browser/` — Off-screen headed Chromium persistent profile capture with in-page `MutationObserver`, `/i/bookmarks` + `/i/history` support, and PID lockfile (`data/sync.lock`).
-   - `http/server.ts` — Node HTTP v1 JSON API server.
-   - `mcp/server.ts` — Read-only stdio JSON-RPC MCP server.
-   - `cron/launchd.ts` — macOS `launchd` LaunchAgent (`com.xbookmarks.sync`, default 24h incremental sync).
+   - `http/server.ts` — Node HTTP v1 JSON API server + Streamable HTTP MCP endpoint (`/mcp`) with optional Bearer auth (`XBM_AUTH_TOKEN`).
+   - `mcp/server.ts` — MCP JSON-RPC server shared across Streamable HTTP (`/mcp`) and stdio (`pnpm mcp`); `mcp/tools.ts` defines the 10 tools, their schemas, annotations, and error messages.
+   - `cron/launchd.ts` — macOS `launchd` LaunchAgents for 24h incremental sync (`com.xbookmarks.sync`) and the persistent HTTP/MCP daemon (`com.xbookmarks.server`).
 5. **`src/main.ts`** — Composition root and CLI entrypoint.
 
 ## Quickstart
@@ -40,10 +40,32 @@ pnpm sync -- --threads
 # 5. Or rebuild & embed all existing SQLite rows into Orama
 pnpm reindex
 
-# 6. Install 24h incremental macOS launchd cron
+# 6. Install 24h incremental sync cron & persistent HTTP/MCP daemon
 pnpm run cron -- install --every 24h
-pnpm run cron -- status
+pnpm run daemon -- install --host 127.0.0.1 --port 8787
+tailscale serve --bg --https=443 http://127.0.0.1:8787
 ```
+
+## Tailscale MCP Server (`/mcp`)
+
+`pnpm serve` (and `com.xbookmarks.server`) exposes 10 MCP tools at `POST /mcp` (protocol `2025-06-18`, also negotiates `2025-03-26` and `2024-11-05`); `pnpm mcp` serves the same tools over stdio:
+
+| Tool | Purpose | Annotations |
+| --- | --- | --- |
+| `search_bookmarks` | Rank bookmarks for a query (hybrid / fulltext / vector) with flat author, domain, folder, tag, article, and ISO date filters | read-only |
+| `get_bookmark` | Full post, X Article Markdown, quote, links, and thread for one id or status URL | read-only |
+| `list_bookmarks` | Browse newest first by `sortBy` with filters and `cursor` paging | read-only |
+| `add_bookmarks` | Save posts by URL or id, hydrate from FxTwitter, embed, and index | idempotent, open-world |
+| `delete_bookmarks` | Delete bookmarks; remembered so syncs skip them unless `allowResync` | destructive, idempotent |
+| `add_bookmark_tags` / `remove_bookmark_tags` | Attach or detach normalized tags | idempotent |
+| `sync_bookmarks` | Capture new bookmarks from X with Playwright, then hydrate, embed, and index | open-world |
+| `reindex_bookmarks` | Re-parse stored payloads and rebuild the Orama snapshot | idempotent |
+| `get_bookmark_stats` | Library totals, breakdowns, and embedding model | read-only |
+
+- Every tool publishes a JSON Schema derived from the same Effect Schema that validates its arguments, with descriptions, defaults, examples, and numeric/length bounds. Unknown or out-of-range arguments return an `isError` result naming each offending field.
+- Results return as `structuredContent` plus a JSON text block (`get_bookmark` text is Markdown). Missing bookmarks and malformed ids return actionable `isError` messages; unknown tools return JSON-RPC `-32602`.
+- Optional Bearer token auth via `XBM_AUTH_TOKEN` protects `/v1/*` and `/mcp` while keeping `GET /health` accessible.
+- With Tailscale Serve enabled on devhost, connect any Streamable HTTP MCP client on your tailnet to `https://<tailscale-host>/mcp`.
 
 ## HTTP v1 API Contract
 

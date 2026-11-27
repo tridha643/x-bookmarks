@@ -1,13 +1,14 @@
 import { Option, Schema } from "effect";
-import { SearchRequest, type BookmarkPage, type ListBookmarksQuery, type SearchResponse } from "../../domain/api.ts";
-import { decodeBookmarkId, type BookmarkDetail, type BookmarkId, type IndexStats } from "../../domain/bookmark.ts";
+import type { BookmarkApiHandlers } from "../../domain/api.ts";
+import { TOOLS, ToolError, type McpTool } from "./tools.ts";
 
-export interface McpHandlers {
-  readonly search: (req: SearchRequest) => Promise<SearchResponse>;
-  readonly getById: (id: BookmarkId) => Promise<BookmarkDetail | null>;
-  readonly list: (query: ListBookmarksQuery) => Promise<BookmarkPage>;
-  readonly stats: () => Promise<IndexStats>;
-}
+export const MCP_PROTOCOL_VERSION = "2025-06-18";
+const SUPPORTED_PROTOCOL_VERSIONS: ReadonlyArray<string> = [MCP_PROTOCOL_VERSION, "2025-03-26", "2024-11-05"];
+
+const SERVER_INSTRUCTIONS =
+  "Personal library of X (Twitter) bookmarks. Start with search_bookmarks for topic questions or list_bookmarks to browse recent saves, then get_bookmark for full text. Bookmark ids are numeric tweet ids; status URLs are accepted anywhere an id is.";
+
+export type McpHandlers = BookmarkApiHandlers;
 
 const JsonRpcRequestSchema = Schema.Struct({
   id: Schema.optional(Schema.Union([Schema.String, Schema.Number, Schema.Null])),
@@ -15,136 +16,95 @@ const JsonRpcRequestSchema = Schema.Struct({
   params: Schema.optional(Schema.Unknown),
 });
 
+const InitializeParamsSchema = Schema.Struct({
+  protocolVersion: Schema.optional(Schema.String),
+});
+
 const ToolCallParamsSchema = Schema.Struct({
   name: Schema.String,
-  arguments: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  arguments: Schema.optional(Schema.Unknown),
 });
 
-const GetBookmarkArgsSchema = Schema.Struct({ id: Schema.String });
+const TOOLS_BY_NAME = new Map<string, McpTool>(TOOLS.map((t) => [t.name, t]));
 
-const ListRecentArgsSchema = Schema.Struct({
-  limit: Schema.optional(Schema.Number),
-  by: Schema.optional(Schema.Literals(["bookmarked", "created"])),
-});
+const TOOL_LIST = TOOLS.map(({ name, title, description, inputSchema, annotations }) => ({
+  name,
+  title,
+  description,
+  inputSchema,
+  annotations,
+}));
 
-const TOOLS = [
-  {
-    name: "search_bookmarks",
-    description:
-      "Search indexed X bookmarks with Orama hybrid (BM25 + nomic-embed-text vector), fulltext, or vector search.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string" },
-        mode: { type: "string", enum: ["hybrid", "fulltext", "vector"] },
-        limit: { type: "number" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "get_bookmark",
-    description: "Fetch full bookmark detail including X Article Markdown, quotes, links, tags, and thread posts.",
-    inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
-  },
-  {
-    name: "list_recent",
-    description: "List recent bookmarks ordered by bookmarked recency or post creation time.",
-    inputSchema: {
-      type: "object",
-      properties: { limit: { type: "number" }, by: { type: "string", enum: ["bookmarked", "created"] } },
-    },
-  },
-  {
-    name: "stats",
-    description: "Return bookmark, article, thread, pruned, and vector index counts.",
-    inputSchema: { type: "object", properties: {} },
-  },
-];
-
-const formatArticleSection = (b: BookmarkDetail): string | null =>
-  b.articleTitle !== null || b.articleText !== null
-    ? `## Article: ${b.articleTitle ?? "(untitled)"}\n\n${b.articleText ?? ""}`
-    : null;
-
-const formatDetail = (b: BookmarkDetail): string => {
-  const quoteSection = b.quoteText !== null ? `## Quoted (@${b.quoteAuthor ?? "unknown"})\n\n${b.quoteText}` : null;
-  const linksSection = b.urls.length > 0 ? `## Links\n${b.urls.map((u) => `- ${u}`).join("\n")}` : null;
-  const threadSection =
-    b.threadPosts.length > 1 ? `## Thread\n${b.threadPosts.map((p, i) => `${i + 1}. ${p.text}`).join("\n\n")}` : null;
-
-  return [
-    `# @${b.authorHandle ?? "unknown"} — ${b.url}`,
-    b.text,
-    formatArticleSection(b),
-    quoteSection,
-    linksSection,
-    threadSection,
-  ]
-    .filter((s): s is string => s !== null)
-    .join("\n\n")
-    .slice(0, 28_000);
+const negotiateVersion = (params: unknown): string => {
+  const requested = Option.getOrUndefined(Schema.decodeUnknownOption(InitializeParamsSchema)(params))?.protocolVersion;
+  return SUPPORTED_PROTOCOL_VERSIONS.find((v) => v === requested) ?? MCP_PROTOCOL_VERSION;
 };
 
-type ToolFn = (args: Record<string, unknown>, handlers: McpHandlers) => Promise<string>;
+type JsonRpcId = string | number | null | undefined;
 
-const TOOL_DISPATCH = new Map<string, ToolFn>([
-  [
-    "search_bookmarks",
-    async (args, handlers) =>
-      JSON.stringify(await handlers.search(Schema.decodeUnknownSync(SearchRequest)(args)), null, 2),
-  ],
-  [
-    "get_bookmark",
-    async (args, handlers) => {
-      const parsed = Schema.decodeUnknownSync(GetBookmarkArgsSchema)(args);
-      const id = decodeBookmarkId(parsed.id);
-      if (id === null) return "Invalid bookmark id.";
-      const detail = await handlers.getById(id);
-      return detail === null ? `Bookmark ${id} not found.` : formatDetail(detail);
-    },
-  ],
-  [
-    "list_recent",
-    async (args, handlers) => {
-      const parsed = Schema.decodeUnknownSync(ListRecentArgsSchema)(args);
-      const page = await handlers.list({
-        ...(parsed.limit !== undefined ? { limit: parsed.limit } : {}),
-        ...(parsed.by !== undefined ? { by: parsed.by } : {}),
-      });
-      return JSON.stringify(page, null, 2);
-    },
-  ],
-  ["stats", async (_args, handlers) => JSON.stringify(await handlers.stats(), null, 2)],
-]);
+const invalidParams = (id: JsonRpcId, message: string) => ({
+  jsonrpc: "2.0",
+  id,
+  error: { code: -32602, message },
+});
+
+const toolFailure = (toolName: string, err: unknown): string => {
+  if (err instanceof ToolError) return err.message;
+  return `${toolName} failed: ${err instanceof Error ? err.message : String(err)}`;
+};
+
+const runTool = async (tool: McpTool, args: unknown, handlers: McpHandlers): Promise<Record<string, unknown>> => {
+  try {
+    const out = await tool.call(args, handlers);
+    return { content: [{ type: "text", text: out.text }], structuredContent: out.structured };
+  } catch (err) {
+    return { isError: true, content: [{ type: "text", text: toolFailure(tool.name, err) }] };
+  }
+};
 
 const handleToolCall = async (
-  id: string | number | null | undefined,
+  id: JsonRpcId,
   params: unknown,
   handlers: McpHandlers,
 ): Promise<Record<string, unknown>> => {
   const callOpt = Schema.decodeUnknownOption(ToolCallParamsSchema)(params);
-  if (Option.isNone(callOpt)) {
-    return { jsonrpc: "2.0", id, result: { isError: true, content: [{ type: "text", text: "invalid tool call" }] } };
+  if (Option.isNone(callOpt)) return invalidParams(id, "tools/call params must include a string tool name.");
+  const tool = TOOLS_BY_NAME.get(callOpt.value.name);
+  if (tool === undefined) {
+    return invalidParams(
+      id,
+      `Unknown tool "${callOpt.value.name}". Available tools: ${TOOLS.map((t) => t.name).join(", ")}.`,
+    );
   }
-  const fn = TOOL_DISPATCH.get(callOpt.value.name);
-  if (fn === undefined) {
+  return { jsonrpc: "2.0", id, result: await runTool(tool, callOpt.value.arguments ?? {}, handlers) };
+};
+
+export const handleMcpPayload = async (
+  payload: unknown,
+  handlers: McpHandlers,
+): Promise<Record<string, unknown> | null> => {
+  const reqOpt = Schema.decodeUnknownOption(JsonRpcRequestSchema)(payload);
+  if (Option.isNone(reqOpt)) return null;
+  const { id, method, params } = reqOpt.value;
+  if (method === "notifications/initialized") return null;
+  if (method === "initialize") {
     return {
       jsonrpc: "2.0",
       id,
-      result: { isError: true, content: [{ type: "text", text: `Unknown tool: ${callOpt.value.name}` }] },
+      result: {
+        protocolVersion: negotiateVersion(params),
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: "x-bookmarks", title: "X Bookmarks", version: "1.0.0" },
+        instructions: SERVER_INSTRUCTIONS,
+      },
     };
   }
-  try {
-    const text = await fn(callOpt.value.arguments ?? {}, handlers);
-    return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } };
-  } catch (err) {
-    return {
-      jsonrpc: "2.0",
-      id,
-      result: { isError: true, content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }] },
-    };
-  }
+  if (method === "ping") return { jsonrpc: "2.0", id, result: {} };
+  if (method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: TOOL_LIST } };
+  if (method === "tools/call") return handleToolCall(id, params, handlers);
+  return id === undefined
+    ? null
+    : { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${method}` } };
 };
 
 export const handleMcpMessage = async (
@@ -157,26 +117,7 @@ export const handleMcpMessage = async (
   } catch {
     return null;
   }
-  const reqOpt = Schema.decodeUnknownOption(JsonRpcRequestSchema)(parsed);
-  if (Option.isNone(reqOpt)) return null;
-  const { id, method, params } = reqOpt.value;
-  if (method === "notifications/initialized") return null;
-  if (method === "initialize") {
-    return {
-      jsonrpc: "2.0",
-      id,
-      result: {
-        protocolVersion: "2024-11-05",
-        capabilities: { tools: {} },
-        serverInfo: { name: "x-bookmarks", version: "1.0.0" },
-      },
-    };
-  }
-  if (method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: TOOLS } };
-  if (method === "tools/call") return handleToolCall(id, params, handlers);
-  return id === undefined
-    ? null
-    : { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${method}` } };
+  return handleMcpPayload(parsed, handlers);
 };
 
 export const runStdioMcpServer = (

@@ -1,0 +1,534 @@
+[
+  {
+    "name": "search_bookmarks",
+    "title": "Search bookmarks",
+    "description": "Find saved X bookmarks relevant to a topic or question, ranked by keyword and semantic similarity. Use this first when the user asks what they bookmarked about something; use list_bookmarks to browse without a query. Returns hits ({ score, snippet, bookmark summary }), the mode actually used, and the total match count. Call get_bookmark with a hit's bookmark.id for full text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Natural-language question or keywords to match against post text, X Articles, quotes, and cards.",
+          "examples": [
+            "durable workflow engines in TypeScript"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "hybrid",
+            "fulltext",
+            "vector"
+          ],
+          "description": "'hybrid' blends keyword (BM25) and semantic ranking, 'fulltext' matches keywords only, 'vector' ranks by meaning only. Hybrid falls back to fulltext when the embedder is offline.",
+          "default": "hybrid"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Maximum hits to return.",
+          "default": 10
+        },
+        "minSimilarity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum cosine similarity for semantic matches in 'hybrid' and 'vector' modes; lower returns more.",
+          "default": 0.45
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only bookmarks posted by this X handle; a leading @ is ignored and matching is case-insensitive.",
+          "examples": [
+            "alice"
+          ]
+        },
+        "domain": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only bookmarks linking to this domain; a leading www. is ignored.",
+          "examples": [
+            "github.com"
+          ]
+        },
+        "folder": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only bookmarks in this X bookmark folder, by folder name or folder id.",
+          "examples": [
+            "AI"
+          ]
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only bookmarks carrying this tag (see add_bookmark_tags).",
+          "examples": [
+            "agents"
+          ]
+        },
+        "hasArticle": {
+          "type": "boolean",
+          "description": "true keeps only long-form X Articles; false excludes them."
+        },
+        "createdAfter": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only posts created at or after this ISO 8601 date or date-time.",
+          "examples": [
+            "2026-01-01"
+          ]
+        },
+        "createdBefore": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only posts created at or before this ISO 8601 date or date-time.",
+          "examples": [
+            "2026-06-30T23:59:59Z"
+          ]
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Search bookmarks",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "get_bookmark",
+    "title": "Get bookmark",
+    "description": "Read one bookmark in full: post text, X Article body as Markdown, quoted post, outbound links, tags, folders, engagement counts, and thread posts. Use after search_bookmarks or list_bookmarks returns an id. The text content is readable Markdown capped at 28,000 characters; structured content holds every field.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Bookmark tweet id, or the post's x.com / twitter.com status URL.",
+          "examples": [
+            "1880000000000000000",
+            "https://x.com/alice/status/1880000000000000000"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Get bookmark",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "list_bookmarks",
+    "title": "List bookmarks",
+    "description": "Browse bookmarks newest first, optionally narrowed by author, linked domain, folder, or tag. Use for 'what did I save recently' or exhaustive walks; use search_bookmarks to rank by relevance. Returns items (bookmark summaries) and nextCursor; pass nextCursor back as cursor for the next page, and stop when it is null.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sortBy": {
+          "type": "string",
+          "enum": [
+            "bookmarked",
+            "created"
+          ],
+          "description": "'bookmarked' orders by when you saved the post; 'created' orders by when the post was published.",
+          "default": "bookmarked"
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only bookmarks posted by this X handle; a leading @ is ignored and matching is case-insensitive.",
+          "examples": [
+            "alice"
+          ]
+        },
+        "domain": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only bookmarks linking to this domain; a leading www. is ignored.",
+          "examples": [
+            "github.com"
+          ]
+        },
+        "folder": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only bookmarks in this X bookmark folder, by folder name or folder id.",
+          "examples": [
+            "AI"
+          ]
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Only bookmarks carrying this tag (see add_bookmark_tags).",
+          "examples": [
+            "agents"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Page size.",
+          "default": 20
+        },
+        "cursor": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Opaque paging cursor: the nextCursor value from the previous list_bookmarks call with the same sortBy and filters. Omit for the first page."
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "List bookmarks",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "add_bookmarks",
+    "title": "Add bookmarks",
+    "description": "Save X posts into the local bookmark library by URL or id, fetch their full content from FxTwitter, and index them for search. Does not bookmark anything on X itself. Posts already saved are counted as existing; posts previously deleted with delete_bookmarks are skipped unless they were deleted with allowResync. Returns added, existing, skipped, hydrated, and indexed counts plus the saved ids.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "refs": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Bookmark tweet id, or the post's x.com / twitter.com status URL.",
+              "examples": [
+                "1880000000000000000",
+                "https://x.com/alice/status/1880000000000000000"
+              ]
+            }
+          ],
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Bookmark tweet id, or the post's x.com / twitter.com status URL.",
+            "examples": [
+              "1880000000000000000",
+              "https://x.com/alice/status/1880000000000000000"
+            ]
+          },
+          "maxItems": 100,
+          "description": "Posts to save, as status URLs or numeric tweet ids."
+        },
+        "hydrate": {
+          "type": "boolean",
+          "description": "Fetch full post, article, and quote content from FxTwitter after saving.",
+          "default": true
+        },
+        "embed": {
+          "type": "boolean",
+          "description": "Compute semantic embeddings so the posts appear in vector search.",
+          "default": true
+        },
+        "includeThreads": {
+          "type": "boolean",
+          "description": "Also fetch the author's self-reply thread for each post.",
+          "default": false
+        },
+        "folder": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Folder name to file the saved posts under.",
+          "examples": [
+            "AI"
+          ]
+        }
+      },
+      "required": [
+        "refs"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Add bookmarks",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "delete_bookmarks",
+    "title": "Delete bookmarks",
+    "description": "Permanently remove bookmarks from the local library and search index. Does not unbookmark them on X. By default each id is remembered so later syncs do not re-import it; set allowResync to let a future sync bring it back. Returns deletedIds and notFoundIds.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Bookmark tweet id, or the post's x.com / twitter.com status URL.",
+              "examples": [
+                "1880000000000000000",
+                "https://x.com/alice/status/1880000000000000000"
+              ]
+            }
+          ],
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Bookmark tweet id, or the post's x.com / twitter.com status URL.",
+            "examples": [
+              "1880000000000000000",
+              "https://x.com/alice/status/1880000000000000000"
+            ]
+          },
+          "maxItems": 500,
+          "description": "Bookmarks to delete, as tweet ids or status URLs."
+        },
+        "allowResync": {
+          "type": "boolean",
+          "description": "true skips the do-not-reimport record, so a later sync_bookmarks may restore these posts.",
+          "default": false
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Why the bookmarks were removed, kept with the do-not-reimport record.",
+          "examples": [
+            "duplicate"
+          ]
+        }
+      },
+      "required": [
+        "ids"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Delete bookmarks",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "add_bookmark_tags",
+    "title": "Add bookmark tags",
+    "description": "Attach one or more tags to a bookmark so it can be filtered by tag in search_bookmarks and list_bookmarks. Existing tags are kept and re-adding a tag is a no-op. Returns the bookmark's full tag list.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Bookmark tweet id, or the post's x.com / twitter.com status URL.",
+          "examples": [
+            "1880000000000000000",
+            "https://x.com/alice/status/1880000000000000000"
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          ],
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "maxItems": 20,
+          "description": "Tags to apply. Each is normalized to a lowercase slug: spaces and punctuation become '-', so 'AI Agents' is stored as 'ai-agents'.",
+          "examples": [
+            [
+              "ai-agents",
+              "effect"
+            ]
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "tags"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Add bookmark tags",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "remove_bookmark_tags",
+    "title": "Remove bookmark tags",
+    "description": "Detach tags from a bookmark; the bookmark itself is kept. Tags it does not carry are ignored. Returns the bookmark's remaining tag list.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Bookmark tweet id, or the post's x.com / twitter.com status URL.",
+          "examples": [
+            "1880000000000000000",
+            "https://x.com/alice/status/1880000000000000000"
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          ],
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "maxItems": 20,
+          "description": "Tags to apply. Each is normalized to a lowercase slug: spaces and punctuation become '-', so 'AI Agents' is stored as 'ai-agents'.",
+          "examples": [
+            [
+              "ai-agents",
+              "effect"
+            ]
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "tags"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Remove bookmark tags",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "sync_bookmarks",
+    "title": "Sync bookmarks from X",
+    "description": "Pull new bookmarks from the signed-in X account with a headless browser, then fetch content, embed, and index them. Can take several minutes and needs a prior `pnpm login`. A daily sync already runs on a schedule, so call this only when the user wants the latest bookmarks right now. Returns captured, added, hydration, embedding, and indexing counts and why capture stopped.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "full": {
+          "type": "boolean",
+          "description": "Scroll the entire bookmark timeline instead of stopping at already-saved posts.",
+          "default": false
+        },
+        "includeThreads": {
+          "type": "boolean",
+          "description": "Also fetch each author's self-reply thread.",
+          "default": true
+        },
+        "embed": {
+          "type": "boolean",
+          "description": "Compute semantic embeddings for newly fetched posts.",
+          "default": true
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "Stop capturing after this many bookmarks. Omit for no cap."
+        },
+        "hydrateLimit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Maximum posts whose content is fetched in this run; 0 only captures.",
+          "default": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Sync bookmarks from X",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "reindex_bookmarks",
+    "title": "Rebuild search index",
+    "description": "Re-parse every stored post payload and rebuild the search index from the local database. Use when search results look stale or incomplete; normal adds, deletes, and syncs keep the index current. Returns reparsed, embedded, and indexed counts.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "embedMissing": {
+          "type": "boolean",
+          "description": "Compute embeddings for posts that have none yet.",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Rebuild search index",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "get_bookmark_stats",
+    "title": "Get bookmark stats",
+    "description": "Summarize the bookmark library: totals for bookmarks, X Articles, threads, deleted posts, and embedded vectors; counts by hydration status and source; top authors and domains; and the embedding model in use.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Get bookmark stats",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  }
+]

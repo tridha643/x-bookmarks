@@ -15,6 +15,7 @@ const RawEnvSchema = Schema.Struct({
   XBM_PROFILE_DIR: Schema.optional(Schema.String),
   XBM_HTTP_HOST: Schema.optional(Schema.String),
   XBM_HTTP_PORT: Schema.optional(PositiveIntFromString),
+  XBM_AUTH_TOKEN: Schema.optional(Schema.String),
   XBM_EMBED_PROVIDER: Schema.optional(EmbedProviderSchema),
   XBM_EMBED_MODEL: Schema.optional(Schema.String),
   XBM_EMBED_DIMS: Schema.optional(PositiveIntFromString),
@@ -31,6 +32,7 @@ export interface AppEnv {
   readonly profileDir: string;
   readonly httpHost: string;
   readonly httpPort: number;
+  readonly authToken: string | null;
   readonly embedProvider: EmbedProvider;
   readonly embedModel: string;
   readonly embedDims: number;
@@ -57,11 +59,13 @@ const buildEmbedConfig = (parsed: ParsedEnv) => ({
 
 export const decodeAppEnv = (raw: Record<string, string | undefined>, projectRoot: string): AppEnv => {
   const parsed = Schema.decodeUnknownSync(RawEnvSchema)(raw);
+  const rawToken = parsed.XBM_AUTH_TOKEN?.trim() ?? "";
   return {
     ...buildStoragePaths(parsed, projectRoot),
     ...buildEmbedConfig(parsed),
     httpHost: parsed.XBM_HTTP_HOST ?? "127.0.0.1",
     httpPort: parsed.XBM_HTTP_PORT ?? 8787,
+    authToken: rawToken === "" ? null : rawToken,
     minRequestMs: parsed.XBM_MIN_REQUEST_MS ?? 1500,
   };
 };

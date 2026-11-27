@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import type { BookmarkId, BookmarkSummary } from "./bookmark.ts";
+import type { BookmarkDetail, BookmarkId, BookmarkSummary, IndexStats } from "./bookmark.ts";
 
 const SearchModeSchema = Schema.Literals(["hybrid", "fulltext", "vector"]);
 export type SearchMode = typeof SearchModeSchema.Type;
@@ -146,7 +146,7 @@ export interface HealthStatus {
   readonly embeddingDims: number;
 }
 
-export type ApiErrorCode = "bad_request" | "not_found" | "conflict" | "unavailable" | "internal";
+export type ApiErrorCode = "bad_request" | "unauthorized" | "not_found" | "conflict" | "unavailable" | "internal";
 
 export interface ApiErrorEnvelope {
   readonly error: {
@@ -161,6 +161,7 @@ export const apiError = (code: ApiErrorCode, message: string): ApiErrorEnvelope 
 
 const ERROR_STATUS = {
   bad_request: 400,
+  unauthorized: 401,
   not_found: 404,
   conflict: 409,
   unavailable: 503,
@@ -168,6 +169,24 @@ const ERROR_STATUS = {
 } satisfies Record<ApiErrorCode, number>;
 
 export const httpStatusForError = (code: ApiErrorCode): number => ERROR_STATUS[code];
+
+export interface BookmarkApiHandlers {
+  readonly health: () => Promise<HealthStatus>;
+  readonly stats: () => Promise<IndexStats>;
+  readonly search: (req: SearchRequest) => Promise<SearchResponse>;
+  readonly list: (query: ListBookmarksQuery) => Promise<BookmarkPage>;
+  readonly getById: (id: BookmarkId) => Promise<BookmarkDetail | null>;
+  readonly ingest: (req: IngestBookmarksRequest) => Promise<IngestBookmarksResponse>;
+  readonly remove: (
+    id: BookmarkId,
+    opts: { readonly hard: boolean; readonly reason: string | null },
+  ) => Promise<DeleteBookmarkResponse>;
+  readonly prune: (req: PruneBookmarksRequest) => Promise<PruneBookmarksResponse>;
+  readonly updateTags: (id: BookmarkId, req: UpdateTagsRequest) => Promise<TagUpdateResponse | null>;
+  readonly deleteTag: (id: BookmarkId, tag: string) => Promise<TagUpdateResponse | null>;
+  readonly sync: (req: SyncRequest) => Promise<SyncReport>;
+  readonly reindex: (req: ReindexRequest) => Promise<ReindexReport>;
+}
 
 export interface OpenApiSpec {
   readonly openapi: "3.1.0";
@@ -180,6 +199,7 @@ export const openApiDocument = (): OpenApiSpec => ({
   info: { title: "x-bookmarks API", version: "1.0.0" },
   paths: {
     "/health": { get: { summary: "Service health and vector index status" } },
+    "/mcp": { post: { summary: "Streamable HTTP MCP JSON-RPC endpoint exposing all v1 bookmark tools" } },
     "/v1/openapi.json": { get: { summary: "OpenAPI 3.1 contract document" } },
     "/v1/stats": { get: { summary: "Bookmark, hydration, domain, and vector statistics" } },
     "/v1/search": { post: { summary: "Hybrid, fulltext, or vector search via Orama" } },
