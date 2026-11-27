@@ -13,9 +13,7 @@ import type {
 import { parseTweetRef, type BookmarkDetail, type BookmarkId, type IndexStats } from "../../domain/bookmark.ts";
 
 /** A tool failure the calling model can act on; its message is returned verbatim with `isError: true`. */
-export class ToolError extends Error {
-  override readonly name = "ToolError";
-}
+export class ToolError extends Error {}
 
 interface ToolAnnotations {
   readonly title: string;
@@ -226,7 +224,7 @@ const formatArticleSection = (b: BookmarkDetail): string | null =>
 
 const formatDetail = (b: BookmarkDetail): string => {
   const quoteSection = b.quoteText !== null ? `## Quoted (@${b.quoteAuthor ?? "unknown"})\n\n${b.quoteText}` : null;
-  const linksSection = b.urls.length > 0 ? `## Links\n${b.urls.map((u) => `- ${u}`).join("\n")}` : null;
+  const linksSection = b.urls.length === 0 ? null : `## Links\n${b.urls.map((u) => `- ${u}`).join("\n")}`;
   const threadSection =
     b.threadPosts.length > 1 ? `## Thread\n${b.threadPosts.map((p, i) => `${i + 1}. ${p.text}`).join("\n\n")}` : null;
 

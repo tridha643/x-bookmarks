@@ -188,6 +188,7 @@ const callTool = async (h: McpHandlers, name: string, args?: unknown): Promise<T
       result: { isError?: boolean; content: Array<{ type: string; text: string }>; structuredContent?: unknown };
     }
   ).result;
+  expect((resp as { jsonrpc: string; id: number }).jsonrpc).toBe("2.0");
   expect(result.content).toHaveLength(1);
   expect(result.content[0]?.type).toBe("text");
   return {
