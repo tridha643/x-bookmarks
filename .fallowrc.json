@@ -1,0 +1,58 @@
+{
+  "$schema": "./node_modules/fallow/schema.json",
+  "boundaries": {
+    "zones": [
+      {
+        "name": "testing",
+        "patterns": ["test/**", "src/**/*.test.ts"]
+      },
+      {
+        "name": "domain",
+        "patterns": ["src/domain/**"]
+      },
+      {
+        "name": "ports",
+        "patterns": ["src/ports/**"]
+      },
+      {
+        "name": "control",
+        "patterns": ["src/control/**"]
+      },
+      {
+        "name": "adapters",
+        "patterns": ["src/adapters/**"]
+      },
+      {
+        "name": "main",
+        "patterns": ["src/main.ts"]
+      },
+      {
+        "name": "config",
+        "patterns": ["oxlint.config.ts", "vitest.config.ts"]
+      }
+    ],
+    "rules": [
+      { "from": "domain", "allow": [] },
+      { "from": "ports", "allow": ["domain"] },
+      { "from": "control", "allow": ["domain", "ports"] },
+      { "from": "adapters", "allow": ["domain", "ports"] },
+      { "from": "main", "allow": ["adapters", "control", "domain", "ports"] },
+      { "from": "testing", "allow": ["adapters", "control", "domain", "main", "ports"] },
+      { "from": "config", "allow": [] }
+    ],
+    "coverage": {
+      "requireAllFiles": true
+    }
+  },
+  "health": {
+    "maxCyclomatic": 10,
+    "maxCognitive": 10
+  },
+  "mutation": {
+    "runner": "vitest",
+    "minScore": 100,
+    "concurrency": 8
+  },
+  "ignorePatterns": ["tools/oxlint/anti-slop/**"],
+  "ignoreDependencies": ["@oxlint/plugins", "@gdp-ts/core"]
+}

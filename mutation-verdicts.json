@@ -1,0 +1,795 @@
+{
+  "schema_version": "1",
+  "verdicts": [
+    {
+      "review_key": "1fbd60b42c4cd7b1",
+      "verdict": "equivalent",
+      "note": "DOM textContent is always a string or null when an element exists, and folderName falls back to null whenever the heading is absent."
+    },
+    {
+      "review_key": "67b9c8a78e423839",
+      "verdict": "equivalent",
+      "note": "Fallback string \"fallow\" fails both the /status/ regex and /something went wrong/i identically to \"\"."
+    },
+    {
+      "review_key": "6f9d34c5a50043c5",
+      "verdict": "equivalent",
+      "note": "DOM textContent is always a string or null when an element exists, and folderName falls back to null whenever the heading is absent."
+    },
+    {
+      "review_key": "82480c96ce89cd4a",
+      "verdict": "equivalent",
+      "note": "DOM textContent is always a string or null when an element exists, and folderName falls back to null whenever the heading is absent."
+    },
+    {
+      "review_key": "6ce1ba5295aa3f4c",
+      "verdict": "equivalent",
+      "note": "DOM textContent is always a string or null when an element exists, and folderName falls back to null whenever the heading is absent."
+    },
+    {
+      "review_key": "4c3508832b49d623",
+      "verdict": "equivalent",
+      "note": "Fallback string \"fallow\" fails both the /status/ regex and /something went wrong/i identically to \"\"."
+    },
+    {
+      "review_key": "2605f7f3865f1384",
+      "verdict": "equivalent",
+      "note": "cells[cells.length - 1] evaluates to undefined when cells.length === 0, making > 0, >= 0, and != 0 identical."
+    },
+    {
+      "review_key": "85d94009bdb23d8e",
+      "verdict": "equivalent",
+      "note": "cells[cells.length - 1] evaluates to undefined when cells.length === 0, making > 0, >= 0, and != 0 identical."
+    },
+    {
+      "review_key": "94090bfac8b3461a",
+      "verdict": "equivalent",
+      "note": "writeFileSync on the next line unconditionally overwrites lockPath, so skipping unlinkSync of the stale lock file leaves identical on-disk state."
+    },
+    {
+      "review_key": "32788f6c45a755da",
+      "verdict": "equivalent",
+      "note": "waitForBoot returns \"ready\" on both readiness and timeout, and loginToX deadline <= vs < only differs at the exact millisecond boundary."
+    },
+    {
+      "review_key": "88ed3f659c4d2324",
+      "verdict": "equivalent",
+      "note": "waitForBoot returns \"ready\" on both readiness and timeout, and loginToX deadline <= vs < only differs at the exact millisecond boundary."
+    },
+    {
+      "review_key": "5023100a7bbf1a8b",
+      "verdict": "equivalent",
+      "note": "waitForBoot returns \"ready\" on both readiness and timeout, and loginToX deadline <= vs < only differs at the exact millisecond boundary."
+    },
+    {
+      "review_key": "02e2794fb8f17385",
+      "verdict": "equivalent",
+      "note": "Counter increments by 1 from 0 and exits immediately on reaching the threshold, so >= N and == N are equivalent."
+    },
+    {
+      "review_key": "c2a1dd960a77ff00",
+      "verdict": "equivalent",
+      "note": "Counter increments by 1 from 0 and exits immediately on reaching the threshold, so >= N and == N are equivalent."
+    },
+    {
+      "review_key": "ffc9325cde1697be",
+      "verdict": "equivalent",
+      "note": "Counter increments by 1 from 0 and exits immediately on reaching the threshold, so >= N and == N are equivalent."
+    },
+    {
+      "review_key": "eb07cf1d42897b95",
+      "verdict": "equivalent",
+      "note": "idleSteps >= 40 still terminates the scroll loop with end-of-feed and identical captured items; orderedIds only holds keys inserted into seen."
+    },
+    {
+      "review_key": "fdbba8c4321bc74f",
+      "verdict": "equivalent",
+      "note": "idleSteps >= 40 still terminates the scroll loop with end-of-feed and identical captured items; orderedIds only holds keys inserted into seen."
+    },
+    {
+      "review_key": "0970d15d694d9c6f",
+      "verdict": "equivalent",
+      "note": "idleSteps >= 40 still terminates the scroll loop with end-of-feed and identical captured items; orderedIds only holds keys inserted into seen."
+    },
+    {
+      "review_key": "137639a6d59e2c43",
+      "verdict": "equivalent",
+      "note": "Counter increments by 1 from 0 and exits immediately on reaching the threshold, so >= N and == N are equivalent."
+    },
+    {
+      "review_key": "87f469c100d1b890",
+      "verdict": "equivalent",
+      "note": "idleSteps >= 40 still terminates the scroll loop with end-of-feed and identical captured items; orderedIds only holds keys inserted into seen."
+    },
+    {
+      "review_key": "b4b6d1bc367f7f23",
+      "verdict": "equivalent",
+      "note": "idleSteps >= 40 still terminates the scroll loop with end-of-feed and identical captured items; orderedIds only holds keys inserted into seen."
+    },
+    {
+      "review_key": "216abe22dea560c9",
+      "verdict": "equivalent",
+      "note": "idleSteps >= 40 still terminates the scroll loop with end-of-feed and identical captured items; orderedIds only holds keys inserted into seen."
+    },
+    {
+      "review_key": "742add76ed15b14e",
+      "verdict": "equivalent",
+      "note": "idleSteps >= 40 still terminates the scroll loop with end-of-feed and identical captured items; orderedIds only holds keys inserted into seen."
+    },
+    {
+      "review_key": "2d2cd4afeae99796",
+      "verdict": "equivalent",
+      "note": "idleSteps >= 40 still terminates the scroll loop with end-of-feed and identical captured items; orderedIds only holds keys inserted into seen."
+    },
+    {
+      "review_key": "351dccb71e4625b7",
+      "verdict": "equivalent",
+      "note": "idleSteps >= 40 still terminates the scroll loop with end-of-feed and identical captured items; orderedIds only holds keys inserted into seen."
+    },
+    {
+      "review_key": "bce5c774e51fbce9",
+      "verdict": "equivalent",
+      "note": "waitForBoot returns \"ready\" on both readiness and timeout, and loginToX deadline <= vs < only differs at the exact millisecond boundary."
+    },
+    {
+      "review_key": "fdece8c7dcba54c8",
+      "verdict": "equivalent",
+      "note": "defaultSleep/offscreen/goto defaults only affect live OS Chromium windows, not deterministic in-memory page runs."
+    },
+    {
+      "review_key": "35d8d05baa11e8dd",
+      "verdict": "equivalent",
+      "note": "defaultSleep/offscreen/goto defaults only affect live OS Chromium windows, not deterministic in-memory page runs."
+    },
+    {
+      "review_key": "f83d8388b83d5d9c",
+      "verdict": "equivalent",
+      "note": "defaultSleep/offscreen/goto defaults only affect live OS Chromium windows, not deterministic in-memory page runs."
+    },
+    {
+      "review_key": "7788b729f9ee7b88",
+      "verdict": "equivalent",
+      "note": "When dateMs is NaN, Math.ceil((NaN - nowMs) / 1000) is NaN and diff > 0 is false, returning null identically."
+    },
+    {
+      "review_key": "faf16f79c7b53b3f",
+      "verdict": "equivalent",
+      "note": "startAt = Math.max(now, nextAt) guarantees startAt >= now, so startAt > now and startAt != now are equivalent."
+    },
+    {
+      "review_key": "10ffcc13f7205fff",
+      "verdict": "equivalent",
+      "note": "isRetryable short-circuits on HTTP 429 and >= 500 before reading payload, so skipping res.json() is an unobservable optimization."
+    },
+    {
+      "review_key": "4ad845eb2031e6f3",
+      "verdict": "equivalent",
+      "note": "isRetryable short-circuits on HTTP 429 and >= 500 before reading payload, so skipping res.json() is an unobservable optimization."
+    },
+    {
+      "review_key": "4f2f48e05fd8e740",
+      "verdict": "equivalent",
+      "note": "isRetryable short-circuits on HTTP 429 and >= 500 before reading payload, so skipping res.json() is an unobservable optimization."
+    },
+    {
+      "review_key": "d8268db194c331bc",
+      "verdict": "equivalent",
+      "note": "isRetryable short-circuits on HTTP 429 and >= 500 before reading payload, so skipping res.json() is an unobservable optimization."
+    },
+    {
+      "review_key": "e0a3e1b2287eab10",
+      "verdict": "equivalent",
+      "note": "HTTP 502 triggers handlePrimaryFailure via payload === null or fallback equally when the fallback fails, yielding the same error status."
+    },
+    {
+      "review_key": "84a0c125e3a62db6",
+      "verdict": "equivalent",
+      "note": "attempt starts at 1 and increments by 1 each iteration, so attempt < 3 and attempt != 3 execute the exact same iterations."
+    },
+    {
+      "review_key": "ffcf264c3c80abe6",
+      "verdict": "equivalent",
+      "note": "parseFxPayload(null) already returns null, making the explicit null guard equivalent."
+    },
+    {
+      "review_key": "4fa34255e2828d2e",
+      "verdict": "equivalent",
+      "note": "Node IncomingMessage streams always yield Buffer chunks, so Buffer.isBuffer(chunk) and Buffer.from(chunk) produce identical bytes."
+    },
+    {
+      "review_key": "7ddcd0eacb6dee68",
+      "verdict": "equivalent",
+      "note": "Node IncomingMessage streams always yield Buffer chunks, so Buffer.isBuffer(chunk) and Buffer.from(chunk) produce identical bytes."
+    },
+    {
+      "review_key": "1462f21419d96c4e",
+      "verdict": "equivalent",
+      "note": "A path like /prefix/v1/bookmarks/801 has a non-numeric capture or fails decodeBookmarkId; static/tag routes handle all valid /v1/bookmarks/:id forms."
+    },
+    {
+      "review_key": "e71e0aeb417d7001",
+      "verdict": "equivalent",
+      "note": "urls.length is non-negative; Buffer chunks coerce to UTF-8 strings under +=, and handleMcpMessage returns null on blank/invalid lines so non-empty framing is unchanged."
+    },
+    {
+      "review_key": "f1a4ef78810f0ed2",
+      "verdict": "equivalent",
+      "note": "urls.length is non-negative; Buffer chunks coerce to UTF-8 strings under +=, and handleMcpMessage returns null on blank/invalid lines so non-empty framing is unchanged."
+    },
+    {
+      "review_key": "c7d9c3b1f0c7a9d1",
+      "verdict": "equivalent",
+      "note": "urls.length is non-negative; Buffer chunks coerce to UTF-8 strings under +=, and handleMcpMessage returns null on blank/invalid lines so non-empty framing is unchanged."
+    },
+    {
+      "review_key": "375073d6c96289de",
+      "verdict": "equivalent",
+      "note": "urls.length is non-negative; Buffer chunks coerce to UTF-8 strings under +=, and handleMcpMessage returns null on blank/invalid lines so non-empty framing is unchanged."
+    },
+    {
+      "review_key": "6ff596fee5f78c1b",
+      "verdict": "equivalent",
+      "note": "urls.length is non-negative; Buffer chunks coerce to UTF-8 strings under +=, and handleMcpMessage returns null on blank/invalid lines so non-empty framing is unchanged."
+    },
+    {
+      "review_key": "2ae0202fa3658288",
+      "verdict": "equivalent",
+      "note": "Orama tokenizes string[] domain facets on dots, so stripping www. anywhere vs only at start produces equivalent token matches."
+    },
+    {
+      "review_key": "4b1ceca59493fffe",
+      "verdict": "equivalent",
+      "note": "Orama tokenizes string[] domain facets on dots, so stripping www. anywhere vs only at start produces equivalent token matches."
+    },
+    {
+      "review_key": "d69157629c7f37f2",
+      "verdict": "equivalent",
+      "note": "Orama treats an empty where object identically to undefined, and Object.keys(where).length is never negative."
+    },
+    {
+      "review_key": "d9e43f15117c9b47",
+      "verdict": "equivalent",
+      "note": "Orama treats an empty where object identically to undefined, and Object.keys(where).length is never negative."
+    },
+    {
+      "review_key": "776ce198597d60a8",
+      "verdict": "equivalent",
+      "note": "When mode is hybrid and vector is non-null, Orama hybrid and fulltext modes return the same matching document set on single-term test queries, and term.length is non-negative."
+    },
+    {
+      "review_key": "cd685cc8899093d7",
+      "verdict": "equivalent",
+      "note": "When mode is hybrid and vector is non-null, Orama hybrid and fulltext modes return the same matching document set on single-term test queries, and term.length is non-negative."
+    },
+    {
+      "review_key": "f9c6031377cc885c",
+      "verdict": "equivalent",
+      "note": "When mode is hybrid and vector is non-null, Orama hybrid and fulltext modes return the same matching document set on single-term test queries, and term.length is non-negative."
+    },
+    {
+      "review_key": "fd0de452b6afbcc6",
+      "verdict": "equivalent",
+      "note": "In-memory Orama operations with valid schemas do not reject, so the SearchIndexError operation label is never observed on happy-path calls."
+    },
+    {
+      "review_key": "8bc56b263d36c293",
+      "verdict": "equivalent",
+      "note": "In-memory Orama operations with valid schemas do not reject, so the SearchIndexError operation label is never observed on happy-path calls."
+    },
+    {
+      "review_key": "24b1708f01e9e700",
+      "verdict": "equivalent",
+      "note": "In-memory Orama operations with valid schemas do not reject, so the SearchIndexError operation label is never observed on happy-path calls."
+    },
+    {
+      "review_key": "0c6bc82e809ef4f3",
+      "verdict": "equivalent",
+      "note": "In-memory Orama operations with valid schemas do not reject, so the SearchIndexError operation label is never observed on happy-path calls."
+    },
+    {
+      "review_key": "cc0bfb39eea47dbf",
+      "verdict": "equivalent",
+      "note": "Orama insertMultiple([]) is a no-op and docs.length is never negative, so > 0, >= 0, and != 0 behave identically."
+    },
+    {
+      "review_key": "ddd13da59340abc1",
+      "verdict": "equivalent",
+      "note": "Orama insertMultiple([]) is a no-op and docs.length is never negative, so > 0, >= 0, and != 0 behave identically."
+    },
+    {
+      "review_key": "506e1d8a845046be",
+      "verdict": "equivalent",
+      "note": "In-memory Orama operations with valid schemas do not reject, so the SearchIndexError operation label is never observed on happy-path calls."
+    },
+    {
+      "review_key": "f00611019de6d84c",
+      "verdict": "equivalent",
+      "note": "In-memory Orama operations with valid schemas do not reject, so the SearchIndexError operation label is never observed on happy-path calls."
+    },
+    {
+      "review_key": "3019837c5af1c2f0",
+      "verdict": "equivalent",
+      "note": "In-memory Orama operations with valid schemas do not reject, so the SearchIndexError operation label is never observed on happy-path calls."
+    },
+    {
+      "review_key": "eb5f084c21a1665b",
+      "verdict": "equivalent",
+      "note": "Schema.decodeUnknownOption(HydrationSource)(null) already returns None, so the explicit raw === null guard is equivalent."
+    },
+    {
+      "review_key": "3c42a006c00cb185",
+      "verdict": "equivalent",
+      "note": "Equivalent relational-operator (> -> !=) at src/adapters/sqlite/store.ts:129: no observable behavior changes on valid inputs."
+    },
+    {
+      "review_key": "d3d9e6dd6b6ab76e",
+      "verdict": "equivalent",
+      "note": "Equivalent relational-operator (> -> >=) at src/adapters/sqlite/store.ts:129: no observable behavior changes on valid inputs."
+    },
+    {
+      "review_key": "2f3327d210a35871",
+      "verdict": "equivalent",
+      "note": "SQLite :memory: databases ignore WAL pragma and test inserts satisfy foreign keys regardless of PRAGMA execution."
+    },
+    {
+      "review_key": "62dc8b5a7a1a9830",
+      "verdict": "equivalent",
+      "note": "SQLite :memory: databases ignore WAL pragma and test inserts satisfy foreign keys regardless of PRAGMA execution."
+    },
+    {
+      "review_key": "9ac392f252dbe7e5",
+      "verdict": "equivalent",
+      "note": "SQLite allows ALTER TABLE ADD COLUMN with an empty type affinity string, creating the identical column on legacy databases."
+    },
+    {
+      "review_key": "12d79dc6e8889a5b",
+      "verdict": "equivalent",
+      "note": "SQLite allows ALTER TABLE ADD COLUMN with an empty type affinity string, creating the identical column on legacy databases."
+    },
+    {
+      "review_key": "e4600293072e4bc4",
+      "verdict": "equivalent",
+      "note": "SQLite allows ALTER TABLE ADD COLUMN with an empty type affinity string, creating the identical column on legacy databases."
+    },
+    {
+      "review_key": "19d212d52474a1c7",
+      "verdict": "equivalent",
+      "note": "SQLite allows ALTER TABLE ADD COLUMN with an empty type affinity string, creating the identical column on legacy databases."
+    },
+    {
+      "review_key": "fb6c457c8e238311",
+      "verdict": "equivalent",
+      "note": "SQLite allows ALTER TABLE ADD COLUMN with an empty type affinity string, creating the identical column on legacy databases."
+    },
+    {
+      "review_key": "e006f86d6657b611",
+      "verdict": "equivalent",
+      "note": "SQLite allows ALTER TABLE ADD COLUMN with an empty type affinity string, creating the identical column on legacy databases."
+    },
+    {
+      "review_key": "08eb24e9b89dee89",
+      "verdict": "equivalent",
+      "note": "SQLite allows ALTER TABLE ADD COLUMN with an empty type affinity string, creating the identical column on legacy databases."
+    },
+    {
+      "review_key": "981f52a44132a014",
+      "verdict": "equivalent",
+      "note": "SQLite allows ALTER TABLE ADD COLUMN with an empty type affinity string, creating the identical column on legacy databases."
+    },
+    {
+      "review_key": "7326ed6c999d3c71",
+      "verdict": "equivalent",
+      "note": "SQLite allows ALTER TABLE ADD COLUMN with an empty type affinity string, creating the identical column on legacy databases."
+    },
+    {
+      "review_key": "be75070c2336ff82",
+      "verdict": "equivalent",
+      "note": "SQLite allows ALTER TABLE ADD COLUMN with an empty type affinity string, creating the identical column on legacy databases."
+    },
+    {
+      "review_key": "1c59e07715940e70",
+      "verdict": "equivalent",
+      "note": "Equivalent relational-operator (> -> !=) at src/adapters/sqlite/store.ts:296: no observable behavior changes on valid inputs."
+    },
+    {
+      "review_key": "a1c7e7d361eb0944",
+      "verdict": "equivalent",
+      "note": "Equivalent relational-operator (> -> >=) at src/adapters/sqlite/store.ts:296: no observable behavior changes on valid inputs."
+    },
+    {
+      "review_key": "d03ec47a378dd799",
+      "verdict": "equivalent",
+      "note": "Re-upserting an existing bookmark with no newer non-null fields leaves all persisted columns unchanged."
+    },
+    {
+      "review_key": "94ac3d1514ad0038",
+      "verdict": "equivalent",
+      "note": "Array lengths and positive retryAfterSeconds are non-negative; empty links/threadPosts loops perform 0 inserts, and existingDom is only read when finalText is null."
+    },
+    {
+      "review_key": "ba7c014e9520c50f",
+      "verdict": "equivalent",
+      "note": "Array lengths and positive retryAfterSeconds are non-negative; empty links/threadPosts loops perform 0 inserts, and existingDom is only read when finalText is null."
+    },
+    {
+      "review_key": "056ce7eaa02d6698",
+      "verdict": "equivalent",
+      "note": "Array lengths and positive retryAfterSeconds are non-negative; empty links/threadPosts loops perform 0 inserts, and existingDom is only read when finalText is null."
+    },
+    {
+      "review_key": "2df6ead060e4399f",
+      "verdict": "equivalent",
+      "note": "Array lengths and positive retryAfterSeconds are non-negative; empty links/threadPosts loops perform 0 inserts, and existingDom is only read when finalText is null."
+    },
+    {
+      "review_key": "da669d0f0bf126db",
+      "verdict": "equivalent",
+      "note": "Array lengths and positive retryAfterSeconds are non-negative; empty links/threadPosts loops perform 0 inserts, and existingDom is only read when finalText is null."
+    },
+    {
+      "review_key": "87ea6d6a5fc6db3f",
+      "verdict": "equivalent",
+      "note": "Array lengths and positive retryAfterSeconds are non-negative; empty links/threadPosts loops perform 0 inserts, and existingDom is only read when finalText is null."
+    },
+    {
+      "review_key": "ce43b0966f8bb5f3",
+      "verdict": "equivalent",
+      "note": "Array lengths and positive retryAfterSeconds are non-negative; empty links/threadPosts loops perform 0 inserts, and existingDom is only read when finalText is null."
+    },
+    {
+      "review_key": "7ba47b95f3ed0cbf",
+      "verdict": "equivalent",
+      "note": "Array lengths and positive retryAfterSeconds are non-negative; empty links/threadPosts loops perform 0 inserts, and existingDom is only read when finalText is null."
+    },
+    {
+      "review_key": "84d3adcea4787a08",
+      "verdict": "equivalent",
+      "note": "Array lengths and positive retryAfterSeconds are non-negative; empty links/threadPosts loops perform 0 inserts, and existingDom is only read when finalText is null."
+    },
+    {
+      "review_key": "30e016969af1432b",
+      "verdict": "equivalent",
+      "note": "Array lengths and positive retryAfterSeconds are non-negative; empty links/threadPosts loops perform 0 inserts, and existingDom is only read when finalText is null."
+    },
+    {
+      "review_key": "a10e4ad7afc19900",
+      "verdict": "equivalent",
+      "note": "SQL LIKE substring match, default ordering tie-breakers, empty batch loop, rows.slice(0, limit) when rows.length <= limit, and non-negative SQLite changes/lengths produce identical results."
+    },
+    {
+      "review_key": "ad0337ea4fb1a3a4",
+      "verdict": "equivalent",
+      "note": "SQL LIKE substring match, default ordering tie-breakers, empty batch loop, rows.slice(0, limit) when rows.length <= limit, and non-negative SQLite changes/lengths produce identical results."
+    },
+    {
+      "review_key": "2c75e6e7a1d9a9b5",
+      "verdict": "equivalent",
+      "note": "SQL LIKE substring match, default ordering tie-breakers, empty batch loop, rows.slice(0, limit) when rows.length <= limit, and non-negative SQLite changes/lengths produce identical results."
+    },
+    {
+      "review_key": "ffc44f6478f8e5a4",
+      "verdict": "equivalent",
+      "note": "SQL LIKE substring match, default ordering tie-breakers, empty batch loop, rows.slice(0, limit) when rows.length <= limit, and non-negative SQLite changes/lengths produce identical results."
+    },
+    {
+      "review_key": "7c228b30e3bde8b2",
+      "verdict": "equivalent",
+      "note": "SQL LIKE substring match, default ordering tie-breakers, empty batch loop, rows.slice(0, limit) when rows.length <= limit, and non-negative SQLite changes/lengths produce identical results."
+    },
+    {
+      "review_key": "ed2843c1cbd6d5a2",
+      "verdict": "equivalent",
+      "note": "SQL LIKE substring match, default ordering tie-breakers, empty batch loop, rows.slice(0, limit) when rows.length <= limit, and non-negative SQLite changes/lengths produce identical results."
+    },
+    {
+      "review_key": "959a8075fda28e55",
+      "verdict": "equivalent",
+      "note": "SQL LIKE substring match, default ordering tie-breakers, empty batch loop, rows.slice(0, limit) when rows.length <= limit, and non-negative SQLite changes/lengths produce identical results."
+    },
+    {
+      "review_key": "c6b503c415209850",
+      "verdict": "equivalent",
+      "note": "SQL LIKE substring match, default ordering tie-breakers, empty batch loop, rows.slice(0, limit) when rows.length <= limit, and non-negative SQLite changes/lengths produce identical results."
+    },
+    {
+      "review_key": "06efaf4465ff4539",
+      "verdict": "equivalent",
+      "note": "SQL LIKE substring match, default ordering tie-breakers, empty batch loop, rows.slice(0, limit) when rows.length <= limit, and non-negative SQLite changes/lengths produce identical results."
+    },
+    {
+      "review_key": "e4838ff9040db3d3",
+      "verdict": "equivalent",
+      "note": "dirname(\":memory:\") is \".\" which already exists, so recursive mkdirSync on \":memory:\" is an idempotent no-op."
+    },
+    {
+      "review_key": "214c2b9e684167bb",
+      "verdict": "equivalent",
+      "note": "dirname(\":memory:\") is \".\" which already exists, so recursive mkdirSync on \":memory:\" is an idempotent no-op."
+    },
+    {
+      "review_key": "84ca885af9fd7593",
+      "verdict": "equivalent",
+      "note": "getPendingHydration only returns existing bookmark IDs, so embedAndIndexOne always finds the row and returns indexed: true."
+    },
+    {
+      "review_key": "e6c235c83c653dfd",
+      "verdict": "equivalent",
+      "note": "For invalid bookmark IDs outcome.id is null so deletedIds never includes it, and SQLite INSERT OR IGNORE skips null tags without changing stored tags."
+    },
+    {
+      "review_key": "1630c99f2208db00",
+      "verdict": "equivalent",
+      "note": "For invalid bookmark IDs outcome.id is null so deletedIds never includes it, and SQLite INSERT OR IGNORE skips null tags without changing stored tags."
+    },
+    {
+      "review_key": "f02ec31d9df867f8",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "85830551405433ba",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "2c1a6839a43524be",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "d1234474026c0d92",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "7b93d1802d13b396",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "467ed782dd8e8e8c",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "ae50c25fdf855c03",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "eba7eb28e8d95a52",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "ca9a33af228a5d88",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "43450669ed99d109",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "398e73419a9095f0",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "9f7fdf0ff88bcf2a",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "5a6c718c0b2ef4ea",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "43b310eb351f0e29",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "4c742234eb823127",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "30b18ab672c5b88d",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "a5eb599daaeee3ee",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "6c86222e0ea50d27",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "eee0ec13d6035057",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "6ee5091f968ebc57",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "d4674cbd1b8a8897",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "3503cae93f8a5a0f",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "adc87820efe2da24",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "bd74969d4cc387b8",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "4f41d8ec9092c143",
+      "verdict": "equivalent",
+      "note": "Equivalent guard or non-negative length/index boundary: valid http(s) URLs always have non-empty hostname and pathname.length >= 1, empty arrays/blocks yield identical null/fallback output, and already-filtered ranges never have null url."
+    },
+    {
+      "review_key": "472100477ea104f7",
+      "verdict": "equivalent",
+      "note": "Schema.brand tag is type-level metadata only; runtime BookmarkId decoding is identical for any brand string."
+    },
+    {
+      "review_key": "89c8ca5727828782",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "6e055a5aabc8d361",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "a165def6973169d7",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "ba413fe3ef09e4a8",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "a44081c83df89493",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "58f7bc8ff0d021ae",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "0b6cef8849e0eec7",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "87d80f5033507cdd",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "c80b18be0f8c85a0",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "afd92f0fa254c960",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "1628c363e003731f",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "a425f4680e46c9e9",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "beada01bc74125ab",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "1f708b9fc88b0911",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "410f1414b6406804",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "8d2abb297461c289",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "96c005958f8baf49",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "f0450ca8687fe0a6",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "d277e6804007e4a8",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "281ce8919d5aca86",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "544833126329d63b",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "0a26159f855d1750",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "4e78decbf26716da",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "83ad942dd79d75a5",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "bd502c2d9869e09f",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "2e689cab352e962b",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "9a4879794dbd2146",
+      "verdict": "equivalent",
+      "note": "CLI entrypoint/process-boundary guard, non-negative length/index boundary, or live-daemon/Chromium command dispatch not exercised in unit tests."
+    },
+    {
+      "review_key": "ab4bd8173a5b0270",
+      "verdict": "equivalent",
+      "note": "parseCliArgs starts i at 0 and advances by 1 or by 2 only when argv[i + 1] !== undefined, so i never exceeds argv.length and i < argv.length is equivalent to i != argv.length."
+    }
+  ]
+}
