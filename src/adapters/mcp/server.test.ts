@@ -96,7 +96,9 @@ const sampleStats: IndexStats = {
   topDomains: [{ key: "effect.website", count: 1 }],
 };
 
-const makeHandlers = (calls: Array<[string, Record<string, unknown>]> = []): McpHandlers => ({
+type Call = readonly [string, unknown];
+
+const makeHandlers = (calls: Array<Call> = []): McpHandlers => ({
   health: async () => ({
     status: "ok",
     totalBookmarks: 1,
@@ -107,7 +109,7 @@ const makeHandlers = (calls: Array<[string, Record<string, unknown>]> = []): Mcp
   }),
   stats: async () => sampleStats,
   search: async (req) => {
-    calls.push(["search", req as Record<string, unknown>]);
+    calls.push(["search", req]);
     return { mode: req.mode ?? "hybrid", total: 0, elapsedMs: 1, hits: [] };
   },
   getById: async (id) => {
@@ -116,14 +118,16 @@ const makeHandlers = (calls: Array<[string, Record<string, unknown>]> = []): Mcp
     if (id === "12347") return titleOnlyDetail;
     if (id === "12348") return noArticleDetail;
     if (id === "12349") throw "string-failure";
+    if (id === "12350") throw new Error("store offline");
+    if (id === "12351") return { ...noArticleDetail, text: "x".repeat(30_000) };
     return null;
   },
   list: async (q) => {
-    calls.push(["list", q as Record<string, unknown>]);
-    return { items: [], nextCursor: null };
+    calls.push(["list", q]);
+    return { items: [], nextCursor: 7 };
   },
   ingest: async (req) => {
-    calls.push(["ingest", req as Record<string, unknown>]);
+    calls.push(["ingest", req]);
     return {
       added: req.refs.length,
       existing: 0,
@@ -134,13 +138,10 @@ const makeHandlers = (calls: Array<[string, Record<string, unknown>]> = []): Mcp
       ids: [bid("12345")],
     };
   },
-  remove: async (id, opts) => {
-    calls.push(["remove", { id, ...opts }]);
-    return { id, deleted: id === "12345", tombstoned: !opts.hard, removedFromIndex: id === "12345" };
-  },
+  remove: async (id) => ({ id, deleted: true, tombstoned: true, removedFromIndex: true }),
   prune: async (req) => {
-    calls.push(["prune", req as Record<string, unknown>]);
-    return { requested: req.ids.length, deletedIds: [bid("12345")], notFoundIds: [], tombstoned: !req.hard };
+    calls.push(["prune", req]);
+    return { requested: req.ids.length, deletedIds: [bid("12345")], notFoundIds: ["99999"], tombstoned: !req.hard };
   },
   updateTags: async (id, req) => {
     calls.push(["updateTags", { id, tags: req.tags }]);
@@ -148,10 +149,11 @@ const makeHandlers = (calls: Array<[string, Record<string, unknown>]> = []): Mcp
   },
   deleteTag: async (id, tag) => {
     calls.push(["deleteTag", { id, tag }]);
-    return id === "12345" ? { id, tags: [] } : null;
+    if (tag === "gone") return null;
+    return id === "12345" ? { id, tags: [`without-${tag}`] } : null;
   },
   sync: async (req) => {
-    calls.push(["sync", req as Record<string, unknown>]);
+    calls.push(["sync", req]);
     return {
       captured: 2,
       added: 1,
@@ -165,36 +167,49 @@ const makeHandlers = (calls: Array<[string, Record<string, unknown>]> = []): Mcp
     };
   },
   reindex: async (req) => {
-    calls.push(["reindex", req as Record<string, unknown>]);
+    calls.push(["reindex", req]);
     return { reparsed: 1, embedded: 1, indexed: 1 };
   },
 });
 
-const callTool = async (
-  h: McpHandlers,
-  name: string,
-  args?: Record<string, unknown>,
-): Promise<{ isError: boolean; text: string }> => {
+interface ToolCallResult {
+  readonly isError: boolean;
+  readonly text: string;
+  readonly structured: unknown;
+}
+
+const callTool = async (h: McpHandlers, name: string, args?: unknown): Promise<ToolCallResult> => {
   const resp = await handleMcpPayload(
-    {
-      id: 1,
-      method: "tools/call",
-      params: { name, ...(args !== undefined ? { arguments: args } : {}) },
-    },
+    { id: 1, method: "tools/call", params: { name, ...(args !== undefined ? { arguments: args } : {}) } },
     h,
   );
-  expect(resp).not.toBeNull();
-  expect((resp as Record<string, unknown>).jsonrpc).toBe("2.0");
-  const result = (resp as Record<string, unknown>).result as {
-    isError?: boolean;
-    content: Array<{ type: string; text: string }>;
-  };
+  const result = (
+    resp as {
+      result: { isError?: boolean; content: Array<{ type: string; text: string }>; structuredContent?: unknown };
+    }
+  ).result;
+  expect(result.content).toHaveLength(1);
   expect(result.content[0]?.type).toBe("text");
-  return { isError: result.isError ?? false, text: result.content[0]?.text ?? "" };
+  return {
+    isError: result.isError ?? false,
+    text: result.content[0]?.text ?? "",
+    structured: result.structuredContent,
+  };
 };
 
+const expectToolError = async (h: McpHandlers, name: string, args: unknown, text: string): Promise<void> => {
+  expect(await callTool(h, name, args)).toStrictEqual({ isError: true, text, structured: undefined });
+};
+
+const callsOf = (calls: ReadonlyArray<Call>, kind: string): ReadonlyArray<unknown> =>
+  calls.filter(([k]) => k === kind).map(([, v]) => v);
+
+const NOT_FOUND_99999 = "Bookmark 99999 not found. Use search_bookmarks or list_bookmarks to find a valid bookmark id.";
+const BAD_ID =
+  '"bad" is not a bookmark id. Pass a numeric tweet id like "1880000000000000000" or a status URL like "https://x.com/user/status/1880000000000000000".';
+
 describe("adapters/mcp/server", () => {
-  it("handles protocol handshake, version negotiation, ping, notifications, and tools/list", async () => {
+  it("negotiates protocol versions and advertises server info and instructions", async () => {
     const h = makeHandlers();
     expect(await handleMcpMessage("{bad", h)).toBeNull();
     expect(await handleMcpMessage(JSON.stringify({ nope: 1 }), h)).toBeNull();
@@ -202,221 +217,124 @@ describe("adapters/mcp/server", () => {
     expect(await handleMcpPayload({ id: 99, method: "notifications/initialized" }, h)).toBeNull();
     expect(await handleMcpPayload({ method: "unknown/notification" }, h)).toBeNull();
 
-    const initModern = await handleMcpPayload(
-      { id: 1, method: "initialize", params: { protocolVersion: MCP_PROTOCOL_VERSION } },
-      h,
-    );
-    expect(initModern).toEqual({
+    expect(
+      await handleMcpPayload({ id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" } }, h),
+    ).toEqual({
       jsonrpc: "2.0",
       id: 1,
       result: {
         protocolVersion: "2025-03-26",
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "x-bookmarks", version: "1.0.0" },
+        serverInfo: { name: "x-bookmarks", title: "X Bookmarks", version: "1.0.0" },
+        instructions:
+          "Personal library of X (Twitter) bookmarks. Start with search_bookmarks for topic questions or list_bookmarks to browse recent saves, then get_bookmark for full text. Bookmark ids are numeric tweet ids; status URLs are accepted anywhere an id is.",
       },
     });
 
-    const initLegacy = await handleMcpPayload(
-      { id: 2, method: "initialize", params: { protocolVersion: "2024-11-05" } },
-      h,
-    );
-    expect((initLegacy as { result: { protocolVersion: string } }).result.protocolVersion).toBe("2024-11-05");
+    const versionFor = async (params?: unknown): Promise<string> => {
+      const resp = await handleMcpPayload(
+        { id: 2, method: "initialize", ...(params !== undefined ? { params } : {}) },
+        h,
+      );
+      return (resp as { result: { protocolVersion: string } }).result.protocolVersion;
+    };
+    expect(MCP_PROTOCOL_VERSION).toBe("2025-06-18");
+    expect(await versionFor({ protocolVersion: "2025-06-18" })).toBe("2025-06-18");
+    expect(await versionFor({ protocolVersion: "2024-11-05" })).toBe("2024-11-05");
+    expect(await versionFor({ protocolVersion: "2099-01-01" })).toBe("2025-06-18");
+    expect(await versionFor(42)).toBe("2025-06-18");
+    expect(await versionFor()).toBe("2025-06-18");
 
-    const initDefault = await handleMcpPayload({ id: 3, method: "initialize" }, h);
-    expect((initDefault as { result: { protocolVersion: string } }).result.protocolVersion).toBe("2025-03-26");
-
-    expect(await handleMcpPayload({ id: 4, method: "ping" }, h)).toEqual({
+    expect(await handleMcpPayload({ id: 4, method: "ping" }, h)).toEqual({ jsonrpc: "2.0", id: 4, result: {} });
+    expect(await handleMcpPayload({ id: 12, method: "resources/list" }, h)).toEqual({
       jsonrpc: "2.0",
-      id: 4,
-      result: {},
+      id: 12,
+      error: { code: -32601, message: "Method not found: resources/list" },
     });
-
-    const list = await handleMcpPayload({ id: 5, method: "tools/list" }, h);
-    expect(list).not.toBeNull();
-    expect((list as Record<string, unknown>).jsonrpc).toBe("2.0");
-    const tools = ((list as Record<string, unknown>).result as { tools: Array<Record<string, unknown>> }).tools;
-    expect(tools).toEqual([
-      {
-        name: "search_bookmarks",
-        description:
-          "Search indexed X bookmarks with Orama hybrid (BM25 + nomic-embed-text vector), fulltext, or vector search.",
-        annotations: { readOnlyHint: true, idempotentHint: true },
-        inputSchema: {
-          type: "object",
-          properties: {
-            query: { type: "string", description: "Search query text" },
-            mode: { type: "string", enum: ["hybrid", "fulltext", "vector"] },
-            limit: { type: "number" },
-            similarity: { type: "number" },
-            filters: {
-              type: "object",
-              properties: {
-                author: { type: "string" },
-                domain: { type: "string" },
-                folder: { type: "string" },
-                tag: { type: "string" },
-                hasArticle: { type: "boolean" },
-                sinceTimestamp: { type: "number" },
-                untilTimestamp: { type: "number" },
-              },
-            },
-          },
-          required: ["query"],
-        },
-      },
-      {
-        name: "get_bookmark",
-        description: "Fetch full bookmark detail including X Article Markdown, quotes, links, tags, and thread posts.",
-        annotations: { readOnlyHint: true, idempotentHint: true },
-        inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
-      },
-      {
-        name: "list_bookmarks",
-        description:
-          "List bookmarks ordered by bookmarked recency or post creation time with optional filters and cursor.",
-        annotations: { readOnlyHint: true, idempotentHint: true },
-        inputSchema: {
-          type: "object",
-          properties: {
-            by: { type: "string", enum: ["bookmarked", "created"] },
-            author: { type: "string" },
-            domain: { type: "string" },
-            folder: { type: "string" },
-            tag: { type: "string" },
-            limit: { type: "number" },
-            cursor: { type: "number" },
-          },
-        },
-      },
-      {
-        name: "add_bookmarks",
-        description:
-          "Ingest bookmark tweet URLs or numeric IDs with optional FxTwitter hydration and vector embedding.",
-        annotations: { readOnlyHint: false },
-        inputSchema: {
-          type: "object",
-          properties: {
-            refs: { type: "array", items: { type: "string" } },
-            hydrate: { type: "boolean" },
-            embed: { type: "boolean" },
-            threads: { type: "boolean" },
-            folderName: { type: "string" },
-          },
-          required: ["refs"],
-        },
-      },
-      {
-        name: "delete_bookmark",
-        description:
-          "Delete one bookmark from SQLite and Orama. Records a tombstone by default so future syncs skip re-importing it; set hard=true to skip tombstoning.",
-        annotations: { readOnlyHint: false, destructiveHint: true },
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            hard: { type: "boolean" },
-            reason: { type: "string" },
-          },
-          required: ["id"],
-        },
-      },
-      {
-        name: "prune_bookmarks",
-        description: "Batch delete bookmarks by ID from SQLite and Orama, tombstoned by default to prevent re-sync.",
-        annotations: { readOnlyHint: false, destructiveHint: true },
-        inputSchema: {
-          type: "object",
-          properties: {
-            ids: { type: "array", items: { type: "string" } },
-            hard: { type: "boolean" },
-            reason: { type: "string" },
-          },
-          required: ["ids"],
-        },
-      },
-      {
-        name: "add_tags",
-        description: "Add normalized tags to a bookmark and update the Orama index.",
-        annotations: { readOnlyHint: false, idempotentHint: true },
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            tags: { type: "array", items: { type: "string" } },
-          },
-          required: ["id", "tags"],
-        },
-      },
-      {
-        name: "remove_tag",
-        description: "Remove a single tag from a bookmark and update the Orama index.",
-        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            tag: { type: "string" },
-          },
-          required: ["id", "tag"],
-        },
-      },
-      {
-        name: "sync_bookmarks",
-        description: "Run incremental (or full) Playwright bookmark capture, hydration, embedding, and Orama upsert.",
-        annotations: { readOnlyHint: false },
-        inputSchema: {
-          type: "object",
-          properties: {
-            full: { type: "boolean" },
-            threads: { type: "boolean" },
-            embed: { type: "boolean" },
-            maxItems: { type: "number" },
-            hydrateLimit: { type: "number" },
-          },
-        },
-      },
-      {
-        name: "reindex_bookmarks",
-        description: "Reparse archived raw JSON, embed missing vectors, and rebuild the Orama snapshot from SQLite.",
-        annotations: { readOnlyHint: false, idempotentHint: true },
-        inputSchema: {
-          type: "object",
-          properties: {
-            embedMissing: { type: "boolean" },
-          },
-        },
-      },
-      {
-        name: "get_stats",
-        description: "Return bookmark, article, thread, pruned, author, domain, and vector index counts.",
-        annotations: { readOnlyHint: true, idempotentHint: true },
-        inputSchema: { type: "object", properties: {} },
-      },
-      {
-        name: "get_health",
-        description:
-          "Return service readiness, bookmark count, indexed vector count, and embedding model configuration.",
-        annotations: { readOnlyHint: true, idempotentHint: true },
-        inputSchema: { type: "object", properties: {} },
-      },
-    ]);
   });
 
-  it("executes read-only MCP tools and formats all bookmark detail variants", async () => {
-    const calls: Array<[string, Record<string, unknown>]> = [];
+  it("lists every tool with its published input schema and annotations", async () => {
+    const list = await handleMcpPayload({ id: 5, method: "tools/list" }, makeHandlers());
+    expect((list as { jsonrpc: string }).jsonrpc).toBe("2.0");
+    const tools = (list as { result: { tools: ReadonlyArray<Record<string, unknown>> } }).result.tools;
+    expect(tools.map((t) => Object.keys(t))).toStrictEqual(
+      tools.map(() => ["name", "title", "description", "inputSchema", "annotations"]),
+    );
+    await expect(`${JSON.stringify(tools, null, 2)}\n`).toMatchFileSnapshot("./__snapshots__/tools-list.snap");
+  });
+
+  it("searches with flattened filters, ISO date bounds, and structured results", async () => {
+    const calls: Array<Call> = [];
     const h = makeHandlers(calls);
 
-    const searchRes = await callTool(h, "search_bookmarks", {
+    const res = await callTool(h, "search_bookmarks", {
       query: "orama",
-      mode: "hybrid",
+      mode: "vector",
       limit: 5,
-      filters: { author: "alice", hasArticle: true },
+      minSimilarity: 0.3,
+      author: "@alice",
+      domain: "effect.website",
+      folder: "AI",
+      tag: "effect",
+      hasArticle: true,
+      createdAfter: "2026-01-15T10:00:00.900Z",
+      createdBefore: "2026-01-16",
     });
-    expect(searchRes.isError).toBe(false);
-    expect(searchRes.text).toContain('"mode": "hybrid"');
+    const expected = { mode: "vector", total: 0, elapsedMs: 1, hits: [] };
+    expect(res).toStrictEqual({ isError: false, text: JSON.stringify(expected), structured: expected });
 
-    const md = (await callTool(h, "get_bookmark", { id: "12345" })).text;
-    expect(md).toBe(
+    await callTool(h, "search_bookmarks", { query: "minimal" });
+    expect(callsOf(calls, "search")).toStrictEqual([
+      {
+        query: "orama",
+        mode: "vector",
+        limit: 5,
+        similarity: 0.3,
+        filters: {
+          author: "@alice",
+          domain: "effect.website",
+          folder: "AI",
+          tag: "effect",
+          hasArticle: true,
+          sinceTimestamp: 1_768_471_200,
+          untilTimestamp: 1_768_521_600,
+        },
+      },
+      {
+        query: "minimal",
+        mode: undefined,
+        limit: undefined,
+        similarity: undefined,
+        filters: {
+          author: undefined,
+          domain: undefined,
+          folder: undefined,
+          tag: undefined,
+          hasArticle: undefined,
+          sinceTimestamp: undefined,
+          untilTimestamp: undefined,
+        },
+      },
+    ]);
+
+    const badDate = 'must be an ISO 8601 date such as "2026-01-15" or "2026-01-15T10:00:00Z".';
+    await expectToolError(h, "search_bookmarks", { query: "q", createdAfter: "soon" }, `createdAfter ${badDate}`);
+    await expectToolError(h, "search_bookmarks", { query: "q", createdBefore: "later" }, `createdBefore ${badDate}`);
+    await expectToolError(
+      h,
+      "search_bookmarks",
+      { query: "", limit: 51, filters: {} },
+      'Invalid arguments for search_bookmarks: Expected no excess property\n  at ["filters"]\nExpected a value with a length of at least 1\n  at ["query"]\nExpected a value between 1 and 50\n  at ["limit"]',
+    );
+  });
+
+  it("reads bookmarks by id or URL as Markdown plus structured detail", async () => {
+    const h = makeHandlers();
+
+    const full = await callTool(h, "get_bookmark", { id: " https://x.com/alice/status/12345 " });
+    expect(full.isError).toBe(false);
+    expect(full.structured).toStrictEqual(sampleDetail);
+    expect(full.text).toBe(
       [
         "# @alice — https://x.com/alice/status/12345",
         "Main tweet text",
@@ -434,94 +352,170 @@ describe("adapters/mcp/server", () => {
     expect(minMd).not.toContain("## Links");
     expect(minMd).not.toContain("## Thread");
 
-    const titleOnlyMd = (await callTool(h, "get_bookmark", { id: "12347" })).text;
-    expect(titleOnlyMd).toBe(
+    expect((await callTool(h, "get_bookmark", { id: "12347" })).text).toBe(
       "# @alice — https://x.com/alice/status/12345\n\nMain tweet text\n\n## Article: Title Only\n\n",
     );
+    expect((await callTool(h, "get_bookmark", { id: "12348" })).text).toBe(
+      "# @alice — https://x.com/alice/status/12345\n\nMain tweet text",
+    );
+    expect((await callTool(h, "get_bookmark", { id: "12351" })).text).toHaveLength(28_000);
 
-    const plainMd = (await callTool(h, "get_bookmark", { id: "12348" })).text;
-    expect(plainMd).toBe("# @alice — https://x.com/alice/status/12345\n\nMain tweet text");
-
-    expect((await callTool(h, "get_bookmark", { id: "99999" })).text).toBe("Bookmark 99999 not found.");
-    expect(await callTool(h, "get_bookmark", { id: "abc" })).toEqual({ isError: true, text: "Invalid bookmark id." });
-
-    await callTool(h, "list_bookmarks", { limit: 5, by: "created", author: "alice" });
-    await callTool(h, "list_bookmarks", {});
-    expect(calls.filter(([k]) => k === "list").map(([, v]) => v)).toStrictEqual([
-      { limit: 5, by: "created", author: "alice" },
-      {},
-    ]);
-
-    expect((await callTool(h, "get_stats")).text).toContain('"total": 1');
-    expect((await callTool(h, "get_health")).text).toContain('"embeddingModel": "nomic-embed-text"');
+    await expectToolError(h, "get_bookmark", { id: "99999" }, NOT_FOUND_99999);
+    await expectToolError(h, "get_bookmark", { id: "bad" }, BAD_ID);
+    await expectToolError(h, "get_bookmark", { id: "12349" }, "get_bookmark failed: string-failure");
+    await expectToolError(h, "get_bookmark", { id: "12350" }, "get_bookmark failed: store offline");
+    await expectToolError(h, "get_bookmark", {}, 'Invalid arguments for get_bookmark: Missing key\n  at ["id"]');
   });
 
-  it("executes mutating v1 API MCP tools (add, delete, prune, tags, sync, reindex)", async () => {
-    const calls: Array<[string, Record<string, unknown>]> = [];
+  it("lists bookmarks with renamed sort and cursor parameters", async () => {
+    const calls: Array<Call> = [];
     const h = makeHandlers(calls);
 
-    expect(
-      (await callTool(h, "add_bookmarks", { refs: ["https://x.com/alice/status/12345"], folderName: "AI" })).text,
-    ).toContain('"added": 1');
-
-    expect((await callTool(h, "delete_bookmark", { id: "12345" })).text).toContain('"tombstoned": true');
-    expect((await callTool(h, "delete_bookmark", { id: "12345", hard: true, reason: "dup" })).text).toContain(
-      '"tombstoned": false',
-    );
-    expect(await callTool(h, "delete_bookmark", { id: "bad" })).toEqual({
-      isError: true,
-      text: "Invalid bookmark id.",
+    const page = await callTool(h, "list_bookmarks", {
+      sortBy: "created",
+      author: "alice",
+      domain: "github.com",
+      folder: "AI",
+      tag: "effect",
+      limit: 100,
+      cursor: 0,
     });
+    expect(page.structured).toStrictEqual({ items: [], nextCursor: 7 });
+    await callTool(h, "list_bookmarks", {});
+    expect(callsOf(calls, "list")).toStrictEqual([
+      { by: "created", author: "alice", domain: "github.com", folder: "AI", tag: "effect", limit: 100, cursor: 0 },
+      {
+        by: undefined,
+        author: undefined,
+        domain: undefined,
+        folder: undefined,
+        tag: undefined,
+        limit: undefined,
+        cursor: undefined,
+      },
+    ]);
+    expect((await callTool(h, "list_bookmarks", { cursor: -1 })).isError).toBe(true);
+    expect((await callTool(h, "list_bookmarks", { limit: 2.5 })).isError).toBe(true);
+  });
 
-    expect((await callTool(h, "prune_bookmarks", { ids: ["12345"], reason: "cleanup" })).text).toContain(
-      '"requested": 1',
+  it("adds, deletes, and tags bookmarks through the v1 handlers", async () => {
+    const calls: Array<Call> = [];
+    const h = makeHandlers(calls);
+
+    const added = await callTool(h, "add_bookmarks", {
+      refs: ["https://x.com/alice/status/12345"],
+      hydrate: false,
+      embed: false,
+      includeThreads: true,
+      folder: "AI",
+    });
+    expect(added.structured).toMatchObject({ added: 1, ids: ["12345"] });
+    await callTool(h, "add_bookmarks", { refs: ["12345"] });
+    expect(callsOf(calls, "ingest")).toStrictEqual([
+      { refs: ["https://x.com/alice/status/12345"], hydrate: false, embed: false, threads: true, folderName: "AI" },
+      { refs: ["12345"], hydrate: undefined, embed: undefined, threads: undefined, folderName: undefined },
+    ]);
+    expect((await callTool(h, "add_bookmarks", { refs: [] })).isError).toBe(true);
+
+    const deleted = await callTool(h, "delete_bookmarks", {
+      ids: ["https://x.com/alice/status/12345", "99999"],
+      allowResync: true,
+      reason: "dup",
+    });
+    expect(deleted.structured).toStrictEqual({
+      requested: 2,
+      deletedIds: ["12345"],
+      notFoundIds: ["99999"],
+      tombstoned: false,
+    });
+    await callTool(h, "delete_bookmarks", { ids: ["12345"] });
+    expect(callsOf(calls, "prune")).toStrictEqual([
+      { ids: ["12345", "99999"], hard: true, reason: "dup" },
+      { ids: ["12345"], hard: undefined, reason: undefined },
+    ]);
+    await expectToolError(h, "delete_bookmarks", { ids: ["12345", "bad"] }, BAD_ID);
+
+    expect((await callTool(h, "add_bookmark_tags", { id: "12345", tags: ["ai", "effect"] })).structured).toStrictEqual({
+      id: "12345",
+      tags: ["ai", "effect"],
+    });
+    await expectToolError(h, "add_bookmark_tags", { id: "99999", tags: ["ai"] }, NOT_FOUND_99999);
+    await expectToolError(h, "add_bookmark_tags", { id: "bad", tags: ["ai"] }, BAD_ID);
+
+    expect(
+      (await callTool(h, "remove_bookmark_tags", { id: "12345", tags: ["ai", "effect"] })).structured,
+    ).toStrictEqual({
+      id: "12345",
+      tags: ["without-effect"],
+    });
+    await expectToolError(h, "remove_bookmark_tags", { id: "99999", tags: ["ai"] }, NOT_FOUND_99999);
+    expect((await callTool(h, "remove_bookmark_tags", { id: "12345", tags: ["ai", "gone"] })).text).toBe(
+      "Bookmark 12345 not found. Use search_bookmarks or list_bookmarks to find a valid bookmark id.",
     );
-
-    expect((await callTool(h, "add_tags", { id: "12345", tags: ["ai", "effect"] })).text).toContain('"ai"');
-    expect((await callTool(h, "add_tags", { id: "99999", tags: ["ai"] })).text).toBe("Bookmark 99999 not found.");
-    expect((await callTool(h, "add_tags", { id: "bad", tags: ["ai"] })).isError).toBe(true);
-
-    expect((await callTool(h, "remove_tag", { id: "12345", tag: "ai" })).text).toContain('"tags": []');
-    expect((await callTool(h, "remove_tag", { id: "99999", tag: "ai" })).text).toBe("Bookmark 99999 not found.");
-    expect((await callTool(h, "remove_tag", { id: "bad", tag: "ai" })).isError).toBe(true);
-
-    expect((await callTool(h, "sync_bookmarks", { full: false, threads: true })).text).toContain('"captured": 2');
-    expect((await callTool(h, "reindex_bookmarks", { embedMissing: true })).text).toContain('"reparsed": 1');
-
-    expect(calls.filter(([k]) => k === "remove").map(([, v]) => v)).toStrictEqual([
-      { id: "12345", hard: false, reason: null },
-      { id: "12345", hard: true, reason: "dup" },
+    expect(callsOf(calls, "deleteTag")).toStrictEqual([
+      { id: "12345", tag: "ai" },
+      { id: "12345", tag: "effect" },
+      { id: "99999", tag: "ai" },
+      { id: "12345", tag: "ai" },
+      { id: "12345", tag: "gone" },
     ]);
   });
 
-  it("returns structured MCP/JSON-RPC errors and streams framed lines via runStdioMcpServer", async () => {
-    const h = makeHandlers();
+  it("syncs, reindexes, and reports stats merged with embedding config", async () => {
+    const calls: Array<Call> = [];
+    const h = makeHandlers(calls);
 
-    const badParams = await handleMcpPayload({ id: 9, method: "tools/call", params: 123 }, h);
-    expect(badParams).toEqual({
+    expect((await callTool(h, "sync_bookmarks", {})).structured).toMatchObject({ captured: 2 });
+    await callTool(h, "sync_bookmarks", {
+      full: true,
+      includeThreads: false,
+      embed: false,
+      maxItems: 5,
+      hydrateLimit: 0,
+    });
+    expect(callsOf(calls, "sync")).toStrictEqual([
+      { full: undefined, threads: undefined, embed: undefined, maxItems: undefined, hydrateLimit: undefined },
+      { full: true, threads: false, embed: false, maxItems: 5, hydrateLimit: 0 },
+    ]);
+
+    expect((await callTool(h, "reindex_bookmarks", { embedMissing: false })).structured).toStrictEqual({
+      reparsed: 1,
+      embedded: 1,
+      indexed: 1,
+    });
+    expect(callsOf(calls, "reindex")).toStrictEqual([{ embedMissing: false }]);
+
+    const stats = await callTool(h, "get_bookmark_stats");
+    expect(stats.structured).toStrictEqual({ ...sampleStats, embeddingModel: "nomic-embed-text", embeddingDims: 768 });
+    expect(JSON.parse(stats.text)).toStrictEqual(stats.structured);
+    expect((await callTool(h, "get_bookmark_stats", { verbose: true })).isError).toBe(true);
+  });
+
+  it("returns JSON-RPC invalid-params errors for malformed calls and unknown tools", async () => {
+    const h = makeHandlers();
+    expect(await handleMcpPayload({ id: 9, method: "tools/call", params: 123 }, h)).toEqual({
       jsonrpc: "2.0",
       id: 9,
-      result: { isError: true, content: [{ type: "text", text: "invalid tool call" }] },
+      error: { code: -32602, message: "tools/call params must include a string tool name." },
     });
-
-    expect(await callTool(h, "nope")).toEqual({ isError: true, text: "Unknown tool: nope" });
-    expect((await callTool(h, "search_bookmarks", {})).isError).toBe(true);
-    expect(await callTool(h, "get_bookmark", { id: "12349" })).toEqual({ isError: true, text: "string-failure" });
-
-    const unknownMethod = await handleMcpPayload({ id: 12, method: "resources/list" }, h);
-    expect(unknownMethod).toEqual({
+    expect(await handleMcpPayload({ id: 10, method: "tools/call", params: { name: "get_health" } }, h)).toEqual({
       jsonrpc: "2.0",
-      id: 12,
-      error: { code: -32601, message: "Method not found: resources/list" },
+      id: 10,
+      error: {
+        code: -32602,
+        message:
+          'Unknown tool "get_health". Available tools: search_bookmarks, get_bookmark, list_bookmarks, add_bookmarks, delete_bookmarks, add_bookmark_tags, remove_bookmark_tags, sync_bookmarks, reindex_bookmarks, get_bookmark_stats.',
+      },
     });
+  });
 
-    // Test runStdioMcpServer framing across split chunks, blank lines, and notifications
+  it("streams newline-framed JSON-RPC over stdio", async () => {
     const input = new PassThrough();
     const output = new PassThrough();
     const chunks: string[] = [];
     output.on("data", (c: Buffer) => chunks.push(c.toString("utf8")));
 
-    runStdioMcpServer(h, input, output);
+    runStdioMcpServer(makeHandlers(), input, output);
     input.write('\n  \n{"id":1,"meth');
     input.write('od":"initialize"}\n{"method":"notifications/initialized"}\n{"id":2,"method":"tools/list"}\n');
 

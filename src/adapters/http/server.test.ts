@@ -306,7 +306,7 @@ describe("adapters/http/server", () => {
     // OPTIONS and DELETE return 204 with MCP headers
     const optRes = await fetch(`${baseUrl}/mcp`, { method: "OPTIONS" });
     expect(optRes.status).toBe(204);
-    expect(optRes.headers.get("mcp-protocol-version")).toBe("2025-03-26");
+    expect(optRes.headers.get("mcp-protocol-version")).toBeNull();
     expect(optRes.headers.get("access-control-allow-origin")).toBe("*");
     expect(optRes.headers.get("access-control-allow-methods")).toBe("GET, POST, DELETE, OPTIONS");
     expect(optRes.headers.get("access-control-allow-headers")).toBe(
@@ -346,7 +346,21 @@ describe("adapters/http/server", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
     });
     expect(initRes.status).toBe(200);
-    expect((initRes.body.result as { protocolVersion: string }).protocolVersion).toBe("2025-03-26");
+    expect((initRes.body.result as { protocolVersion: string }).protocolVersion).toBe("2025-06-18");
+
+    const statsCall = await reqJson("/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "get_bookmark_stats", arguments: {} },
+      }),
+    });
+    expect(statsCall.status).toBe(200);
+    expect(
+      (statsCall.body.result as { structuredContent: { embeddingModel: string } }).structuredContent.embeddingModel,
+    ).toBe("nomic-embed-text");
 
     // Batch with mixed request + notification returns 200 array; notification-only batch returns 202
     const batchRes = await fetch(`${baseUrl}/mcp`, {

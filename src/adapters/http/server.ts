@@ -27,7 +27,6 @@ export interface HttpServerOptions {
 }
 
 const MCP_HEADERS = {
-  "MCP-Protocol-Version": "2025-03-26",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version",
