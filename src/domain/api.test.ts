@@ -17,18 +17,20 @@ describe("domain/api", () => {
   it("builds standard error envelopes and maps all HTTP status codes", () => {
     expect(apiError("bad_request", "oops")).toEqual({ error: { code: "bad_request", message: "oops" } });
     expect(httpStatusForError("bad_request")).toBe(400);
+    expect(httpStatusForError("unauthorized")).toBe(401);
     expect(httpStatusForError("not_found")).toBe(404);
     expect(httpStatusForError("conflict")).toBe(409);
     expect(httpStatusForError("unavailable")).toBe(503);
     expect(httpStatusForError("internal")).toBe(500);
   });
 
-  it("exposes OpenAPI 3.1 contract with all v1 endpoints including delete and prune", () => {
+  it("exposes OpenAPI 3.1 contract with all v1 endpoints including delete, prune, and MCP", () => {
     const doc = openApiDocument();
     expect(doc.openapi).toBe("3.1.0");
     expect(doc.info).toEqual({ title: "x-bookmarks API", version: "1.0.0" });
     expect(Object.keys(doc.paths)).toEqual([
       "/health",
+      "/mcp",
       "/v1/openapi.json",
       "/v1/stats",
       "/v1/search",

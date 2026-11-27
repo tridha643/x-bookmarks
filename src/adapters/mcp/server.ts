@@ -1,18 +1,28 @@
 import { Option, Schema } from "effect";
-import { SearchRequest, type BookmarkPage, type ListBookmarksQuery, type SearchResponse } from "../../domain/api.ts";
-import { decodeBookmarkId, type BookmarkDetail, type BookmarkId, type IndexStats } from "../../domain/bookmark.ts";
+import {
+  IngestBookmarksRequest,
+  ListBookmarksQuery,
+  PruneBookmarksRequest,
+  ReindexRequest,
+  SearchRequest,
+  SyncRequest,
+  type BookmarkApiHandlers,
+} from "../../domain/api.ts";
+import { decodeBookmarkId, type BookmarkDetail, type BookmarkId } from "../../domain/bookmark.ts";
 
-export interface McpHandlers {
-  readonly search: (req: SearchRequest) => Promise<SearchResponse>;
-  readonly getById: (id: BookmarkId) => Promise<BookmarkDetail | null>;
-  readonly list: (query: ListBookmarksQuery) => Promise<BookmarkPage>;
-  readonly stats: () => Promise<IndexStats>;
-}
+export const MCP_PROTOCOL_VERSION = "2025-03-26";
+const LEGACY_PROTOCOL_VERSION = "2024-11-05";
+
+export type McpHandlers = BookmarkApiHandlers;
 
 const JsonRpcRequestSchema = Schema.Struct({
   id: Schema.optional(Schema.Union([Schema.String, Schema.Number, Schema.Null])),
   method: Schema.String,
   params: Schema.optional(Schema.Unknown),
+});
+
+const InitializeParamsSchema = Schema.Struct({
+  protocolVersion: Schema.optional(Schema.String),
 });
 
 const ToolCallParamsSchema = Schema.Struct({
@@ -22,9 +32,20 @@ const ToolCallParamsSchema = Schema.Struct({
 
 const GetBookmarkArgsSchema = Schema.Struct({ id: Schema.String });
 
-const ListRecentArgsSchema = Schema.Struct({
-  limit: Schema.optional(Schema.Number),
-  by: Schema.optional(Schema.Literals(["bookmarked", "created"])),
+const DeleteBookmarkArgsSchema = Schema.Struct({
+  id: Schema.String,
+  hard: Schema.optional(Schema.Boolean),
+  reason: Schema.optional(Schema.String),
+});
+
+const AddTagsArgsSchema = Schema.Struct({
+  id: Schema.String,
+  tags: Schema.Array(Schema.String),
+});
+
+const RemoveTagArgsSchema = Schema.Struct({
+  id: Schema.String,
+  tag: Schema.String,
 });
 
 const TOOLS = [
@@ -32,12 +53,26 @@ const TOOLS = [
     name: "search_bookmarks",
     description:
       "Search indexed X bookmarks with Orama hybrid (BM25 + nomic-embed-text vector), fulltext, or vector search.",
+    annotations: { readOnlyHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string" },
+        query: { type: "string", description: "Search query text" },
         mode: { type: "string", enum: ["hybrid", "fulltext", "vector"] },
         limit: { type: "number" },
+        similarity: { type: "number" },
+        filters: {
+          type: "object",
+          properties: {
+            author: { type: "string" },
+            domain: { type: "string" },
+            folder: { type: "string" },
+            tag: { type: "string" },
+            hasArticle: { type: "boolean" },
+            sinceTimestamp: { type: "number" },
+            untilTimestamp: { type: "number" },
+          },
+        },
       },
       required: ["query"],
     },
@@ -45,19 +80,133 @@ const TOOLS = [
   {
     name: "get_bookmark",
     description: "Fetch full bookmark detail including X Article Markdown, quotes, links, tags, and thread posts.",
+    annotations: { readOnlyHint: true, idempotentHint: true },
     inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
   },
   {
-    name: "list_recent",
-    description: "List recent bookmarks ordered by bookmarked recency or post creation time.",
+    name: "list_bookmarks",
+    description: "List bookmarks ordered by bookmarked recency or post creation time with optional filters and cursor.",
+    annotations: { readOnlyHint: true, idempotentHint: true },
     inputSchema: {
       type: "object",
-      properties: { limit: { type: "number" }, by: { type: "string", enum: ["bookmarked", "created"] } },
+      properties: {
+        by: { type: "string", enum: ["bookmarked", "created"] },
+        author: { type: "string" },
+        domain: { type: "string" },
+        folder: { type: "string" },
+        tag: { type: "string" },
+        limit: { type: "number" },
+        cursor: { type: "number" },
+      },
     },
   },
   {
-    name: "stats",
-    description: "Return bookmark, article, thread, pruned, and vector index counts.",
+    name: "add_bookmarks",
+    description: "Ingest bookmark tweet URLs or numeric IDs with optional FxTwitter hydration and vector embedding.",
+    annotations: { readOnlyHint: false },
+    inputSchema: {
+      type: "object",
+      properties: {
+        refs: { type: "array", items: { type: "string" } },
+        hydrate: { type: "boolean" },
+        embed: { type: "boolean" },
+        threads: { type: "boolean" },
+        folderName: { type: "string" },
+      },
+      required: ["refs"],
+    },
+  },
+  {
+    name: "delete_bookmark",
+    description:
+      "Delete one bookmark from SQLite and Orama. Records a tombstone by default so future syncs skip re-importing it; set hard=true to skip tombstoning.",
+    annotations: { readOnlyHint: false, destructiveHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        hard: { type: "boolean" },
+        reason: { type: "string" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "prune_bookmarks",
+    description: "Batch delete bookmarks by ID from SQLite and Orama, tombstoned by default to prevent re-sync.",
+    annotations: { readOnlyHint: false, destructiveHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        ids: { type: "array", items: { type: "string" } },
+        hard: { type: "boolean" },
+        reason: { type: "string" },
+      },
+      required: ["ids"],
+    },
+  },
+  {
+    name: "add_tags",
+    description: "Add normalized tags to a bookmark and update the Orama index.",
+    annotations: { readOnlyHint: false, idempotentHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+      },
+      required: ["id", "tags"],
+    },
+  },
+  {
+    name: "remove_tag",
+    description: "Remove a single tag from a bookmark and update the Orama index.",
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        tag: { type: "string" },
+      },
+      required: ["id", "tag"],
+    },
+  },
+  {
+    name: "sync_bookmarks",
+    description: "Run incremental (or full) Playwright bookmark capture, hydration, embedding, and Orama upsert.",
+    annotations: { readOnlyHint: false },
+    inputSchema: {
+      type: "object",
+      properties: {
+        full: { type: "boolean" },
+        threads: { type: "boolean" },
+        embed: { type: "boolean" },
+        maxItems: { type: "number" },
+        hydrateLimit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "reindex_bookmarks",
+    description: "Reparse archived raw JSON, embed missing vectors, and rebuild the Orama snapshot from SQLite.",
+    annotations: { readOnlyHint: false, idempotentHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        embedMissing: { type: "boolean" },
+      },
+    },
+  },
+  {
+    name: "get_stats",
+    description: "Return bookmark, article, thread, pruned, author, domain, and vector index counts.",
+    annotations: { readOnlyHint: true, idempotentHint: true },
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_health",
+    description: "Return service readiness, bookmark count, indexed vector count, and embedding model configuration.",
+    annotations: { readOnlyHint: true, idempotentHint: true },
     inputSchema: { type: "object", properties: {} },
   },
 ];
@@ -86,37 +235,74 @@ const formatDetail = (b: BookmarkDetail): string => {
     .slice(0, 28_000);
 };
 
+const jsonText = (value: unknown): string => JSON.stringify(value, null, 2);
+
+const requireBookmarkId = (rawId: string): BookmarkId => {
+  const id = decodeBookmarkId(rawId);
+  if (id === null) throw new Error("Invalid bookmark id.");
+  return id;
+};
+
 type ToolFn = (args: Record<string, unknown>, handlers: McpHandlers) => Promise<string>;
 
 const TOOL_DISPATCH = new Map<string, ToolFn>([
-  [
-    "search_bookmarks",
-    async (args, handlers) =>
-      JSON.stringify(await handlers.search(Schema.decodeUnknownSync(SearchRequest)(args)), null, 2),
-  ],
+  ["search_bookmarks", async (args, h) => jsonText(await h.search(Schema.decodeUnknownSync(SearchRequest)(args)))],
   [
     "get_bookmark",
-    async (args, handlers) => {
-      const parsed = Schema.decodeUnknownSync(GetBookmarkArgsSchema)(args);
-      const id = decodeBookmarkId(parsed.id);
-      if (id === null) return "Invalid bookmark id.";
-      const detail = await handlers.getById(id);
+    async (args, h) => {
+      const id = requireBookmarkId(Schema.decodeUnknownSync(GetBookmarkArgsSchema)(args).id);
+      const detail = await h.getById(id);
       return detail === null ? `Bookmark ${id} not found.` : formatDetail(detail);
     },
   ],
+  ["list_bookmarks", async (args, h) => jsonText(await h.list(Schema.decodeUnknownSync(ListBookmarksQuery)(args)))],
   [
-    "list_recent",
-    async (args, handlers) => {
-      const parsed = Schema.decodeUnknownSync(ListRecentArgsSchema)(args);
-      const page = await handlers.list({
-        ...(parsed.limit !== undefined ? { limit: parsed.limit } : {}),
-        ...(parsed.by !== undefined ? { by: parsed.by } : {}),
-      });
-      return JSON.stringify(page, null, 2);
+    "add_bookmarks",
+    async (args, h) => jsonText(await h.ingest(Schema.decodeUnknownSync(IngestBookmarksRequest)(args))),
+  ],
+  [
+    "delete_bookmark",
+    async (args, h) => {
+      const parsed = Schema.decodeUnknownSync(DeleteBookmarkArgsSchema)(args);
+      const id = requireBookmarkId(parsed.id);
+      return jsonText(await h.remove(id, { hard: parsed.hard ?? false, reason: parsed.reason ?? null }));
     },
   ],
-  ["stats", async (_args, handlers) => JSON.stringify(await handlers.stats(), null, 2)],
+  [
+    "prune_bookmarks",
+    async (args, h) => jsonText(await h.prune(Schema.decodeUnknownSync(PruneBookmarksRequest)(args))),
+  ],
+  [
+    "add_tags",
+    async (args, h) => {
+      const parsed = Schema.decodeUnknownSync(AddTagsArgsSchema)(args);
+      const id = requireBookmarkId(parsed.id);
+      const out = await h.updateTags(id, { tags: parsed.tags });
+      return out === null ? `Bookmark ${id} not found.` : jsonText(out);
+    },
+  ],
+  [
+    "remove_tag",
+    async (args, h) => {
+      const parsed = Schema.decodeUnknownSync(RemoveTagArgsSchema)(args);
+      const id = requireBookmarkId(parsed.id);
+      const out = await h.deleteTag(id, parsed.tag);
+      return out === null ? `Bookmark ${id} not found.` : jsonText(out);
+    },
+  ],
+  ["sync_bookmarks", async (args, h) => jsonText(await h.sync(Schema.decodeUnknownSync(SyncRequest)(args)))],
+  ["reindex_bookmarks", async (args, h) => jsonText(await h.reindex(Schema.decodeUnknownSync(ReindexRequest)(args)))],
+  ["get_stats", async (_args, h) => jsonText(await h.stats())],
+  ["get_health", async (_args, h) => jsonText(await h.health())],
 ]);
+
+const negotiateVersion = (params: unknown): string => {
+  const initOpt = Schema.decodeUnknownOption(InitializeParamsSchema)(params);
+  if (Option.isSome(initOpt) && initOpt.value.protocolVersion === LEGACY_PROTOCOL_VERSION) {
+    return LEGACY_PROTOCOL_VERSION;
+  }
+  return MCP_PROTOCOL_VERSION;
+};
 
 const handleToolCall = async (
   id: string | number | null | undefined,
@@ -147,6 +333,33 @@ const handleToolCall = async (
   }
 };
 
+export const handleMcpPayload = async (
+  payload: unknown,
+  handlers: McpHandlers,
+): Promise<Record<string, unknown> | null> => {
+  const reqOpt = Schema.decodeUnknownOption(JsonRpcRequestSchema)(payload);
+  if (Option.isNone(reqOpt)) return null;
+  const { id, method, params } = reqOpt.value;
+  if (method === "notifications/initialized") return null;
+  if (method === "initialize") {
+    return {
+      jsonrpc: "2.0",
+      id,
+      result: {
+        protocolVersion: negotiateVersion(params),
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: "x-bookmarks", version: "1.0.0" },
+      },
+    };
+  }
+  if (method === "ping") return { jsonrpc: "2.0", id, result: {} };
+  if (method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: TOOLS } };
+  if (method === "tools/call") return handleToolCall(id, params, handlers);
+  return id === undefined
+    ? null
+    : { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${method}` } };
+};
+
 export const handleMcpMessage = async (
   rawLine: string,
   handlers: McpHandlers,
@@ -157,26 +370,7 @@ export const handleMcpMessage = async (
   } catch {
     return null;
   }
-  const reqOpt = Schema.decodeUnknownOption(JsonRpcRequestSchema)(parsed);
-  if (Option.isNone(reqOpt)) return null;
-  const { id, method, params } = reqOpt.value;
-  if (method === "notifications/initialized") return null;
-  if (method === "initialize") {
-    return {
-      jsonrpc: "2.0",
-      id,
-      result: {
-        protocolVersion: "2024-11-05",
-        capabilities: { tools: {} },
-        serverInfo: { name: "x-bookmarks", version: "1.0.0" },
-      },
-    };
-  }
-  if (method === "tools/list") return { jsonrpc: "2.0", id, result: { tools: TOOLS } };
-  if (method === "tools/call") return handleToolCall(id, params, handlers);
-  return id === undefined
-    ? null
-    : { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${method}` } };
+  return handleMcpPayload(parsed, handlers);
 };
 
 export const runStdioMcpServer = (

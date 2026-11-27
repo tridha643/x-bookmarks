@@ -1,11 +1,18 @@
 import { resolve } from "node:path";
 import { Layer, Logger, ManagedRuntime } from "effect";
 import { PlaywrightCaptureLive, loginToX } from "./adapters/browser/playwright.ts";
-import { cronStatus, installCron, uninstallCron } from "./adapters/cron/launchd.ts";
+import {
+  cronStatus,
+  installCron,
+  installServer,
+  serverStatus,
+  uninstallCron,
+  uninstallServer,
+} from "./adapters/cron/launchd.ts";
 import { OllamaEmbedderLive, OpenAiEmbedderLive } from "./adapters/embedder/live.ts";
 import { FxTwitterHydratorLive } from "./adapters/fxtwitter/client.ts";
 import { createHttpServer, type HttpApiHandlers } from "./adapters/http/server.ts";
-import { runStdioMcpServer } from "./adapters/mcp/server.ts";
+import { handleMcpPayload, runStdioMcpServer } from "./adapters/mcp/server.ts";
 import { OramaSearchIndexLive } from "./adapters/orama/index.ts";
 import { SqliteBookmarkStoreLive } from "./adapters/sqlite/store.ts";
 import { hydratePending, ingestBookmarks, reindexAll, syncBookmarks } from "./control/ingest.ts";
@@ -111,9 +118,12 @@ const makeHandlers = (runtime: ManagedRuntime.ManagedRuntime<AppServices, unknow
 });
 
 const runServe = async (env: AppEnv, handlers: HttpApiHandlers): Promise<number> => {
-  const server = createHttpServer(handlers);
+  const server = createHttpServer(handlers, {
+    authToken: env.authToken,
+    mcp: (payload) => handleMcpPayload(payload, handlers),
+  });
   await new Promise<void>((res) => server.listen(env.httpPort, env.httpHost, () => res()));
-  console.error(`x-bookmarks API listening on http://${env.httpHost}:${env.httpPort}`);
+  console.error(`x-bookmarks API & MCP listening on http://${env.httpHost}:${env.httpPort} (MCP: /mcp)`);
   await new Promise<void>((res) => {
     for (const sig of ["SIGINT", "SIGTERM"] as const) {
       process.once(sig, () => server.close(() => res()));
@@ -278,7 +288,7 @@ export const runCronCommand = (
     readonly status: typeof cronStatus;
   } = { install: installCron, uninstall: uninstallCron, status: cronStatus },
 ): number => {
-  const sub = cli.pos[0] ?? "status";
+  const sub = cli.pos[0];
   if (sub === "install") {
     const every = cli.values.get("every");
     console.log(
@@ -295,27 +305,62 @@ export const runCronCommand = (
   return 0;
 };
 
+export interface DaemonFns {
+  readonly install: typeof installServer;
+  readonly uninstall: typeof uninstallServer;
+  readonly status: typeof serverStatus;
+}
+
+export const runDaemonCommand = (
+  cli: ParsedCli,
+  env: AppEnv,
+  fns: DaemonFns = { install: installServer, uninstall: uninstallServer, status: serverStatus },
+  log: (line: string) => void = console.log,
+): number => {
+  const sub = cli.pos[0];
+  if (sub === "install") {
+    const host = cli.values.get("host") ?? env.httpHost;
+    const port = numFlag(cli, "port") ?? env.httpPort;
+    log(
+      fns.install({
+        projectRoot: PROJECT_ROOT,
+        host,
+        port,
+        authToken: env.authToken,
+      }),
+    );
+    return 0;
+  }
+  log(sub === "uninstall" ? fns.uninstall() : fns.status(PROJECT_ROOT));
+  return 0;
+};
+
 export const dispatchCommand = async (cmd: string, ctx: CommandCtx): Promise<number | null> => {
   const fn = COMMANDS.get(cmd);
   if (fn === undefined) return null;
   return fn(ctx);
 };
 
-export const start = async (argv: ReadonlyArray<string>): Promise<number> => {
+export const start = async (
+  argv: ReadonlyArray<string>,
+  log: (line: string) => void = console.log,
+  daemonFns?: DaemonFns,
+): Promise<number> => {
   const [cmd = "help", ...rest] = argv;
   const cli = parseCliArgs(rest);
   const env = decodeAppEnv(process.env, PROJECT_ROOT);
 
   if (cmd === "login") {
     const ok = await loginToX(env.profileDir);
-    console.log(ok ? "Login confirmed." : "Browser closed before bookmarks loaded.");
+    log(ok ? "Login confirmed." : "Browser closed before bookmarks loaded.");
     return ok ? 0 : 1;
   }
   if (cmd === "cron") return runCronCommand(cli);
+  if (cmd === "daemon") return runDaemonCommand(cli, env, daemonFns, log);
 
   if (!COMMANDS.has(cmd)) {
-    console.log(
-      "Commands: login | sync | hydrate | reindex | embed | search | list | add | prune | tag | stats | serve | mcp | cron",
+    log(
+      "Commands: login | sync | hydrate | reindex | embed | search | list | add | prune | tag | stats | serve | mcp | cron | daemon",
     );
     return 0;
   }

@@ -29,6 +29,7 @@
     "stats": "node src/main.ts stats",
     "reindex": "node src/main.ts reindex",
     "cron": "node src/main.ts cron",
+    "daemon": "node src/main.ts daemon",
     "serve": "node src/main.ts serve",
     "mcp": "node src/main.ts mcp"
   },

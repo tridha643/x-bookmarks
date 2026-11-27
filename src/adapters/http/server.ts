@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { Option, Schema } from "effect";
 import {
@@ -12,39 +13,35 @@ import {
   httpStatusForError,
   openApiDocument,
   type ApiErrorCode,
-  type BookmarkPage,
-  type DeleteBookmarkResponse,
-  type HealthStatus,
-  type IngestBookmarksResponse,
-  type PruneBookmarksResponse,
-  type ReindexReport,
-  type SearchResponse,
-  type SyncReport,
-  type TagUpdateResponse,
+  type BookmarkApiHandlers,
 } from "../../domain/api.ts";
-import { decodeBookmarkId, type BookmarkDetail, type BookmarkId, type IndexStats } from "../../domain/bookmark.ts";
+import { decodeBookmarkId, type BookmarkId } from "../../domain/bookmark.ts";
 
-export interface HttpApiHandlers {
-  readonly health: () => Promise<HealthStatus>;
-  readonly stats: () => Promise<IndexStats>;
-  readonly search: (req: SearchRequest) => Promise<SearchResponse>;
-  readonly list: (query: ListBookmarksQuery) => Promise<BookmarkPage>;
-  readonly getById: (id: BookmarkId) => Promise<BookmarkDetail | null>;
-  readonly ingest: (req: IngestBookmarksRequest) => Promise<IngestBookmarksResponse>;
-  readonly remove: (
-    id: BookmarkId,
-    opts: { readonly hard: boolean; readonly reason: string | null },
-  ) => Promise<DeleteBookmarkResponse>;
-  readonly prune: (req: PruneBookmarksRequest) => Promise<PruneBookmarksResponse>;
-  readonly updateTags: (id: BookmarkId, req: UpdateTagsRequest) => Promise<TagUpdateResponse | null>;
-  readonly deleteTag: (id: BookmarkId, tag: string) => Promise<TagUpdateResponse | null>;
-  readonly sync: (req: SyncRequest) => Promise<SyncReport>;
-  readonly reindex: (req: ReindexRequest) => Promise<ReindexReport>;
+export type HttpApiHandlers = BookmarkApiHandlers;
+
+export type McpHttpDispatch = (payload: unknown) => Promise<Record<string, unknown> | null>;
+
+export interface HttpServerOptions {
+  readonly authToken?: string | null;
+  readonly mcp?: McpHttpDispatch;
 }
 
-const sendJson = (res: ServerResponse, status: number, payload: unknown): void => {
+const MCP_HEADERS = {
+  "MCP-Protocol-Version": "2025-03-26",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version",
+} as const;
+
+const sendJson = (
+  res: ServerResponse,
+  status: number,
+  payload: unknown,
+  extraHeaders?: Record<string, string>,
+): void => {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
+    ...extraHeaders,
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
   });
@@ -53,6 +50,15 @@ const sendJson = (res: ServerResponse, status: number, payload: unknown): void =
 
 const sendError = (res: ServerResponse, code: ApiErrorCode, message: string): void => {
   sendJson(res, httpStatusForError(code), apiError(code, message));
+};
+
+const isAuthorized = (req: IncomingMessage, authToken: string | null): boolean => {
+  if (authToken === null) return true;
+  const header = req.headers.authorization;
+  if (header === undefined || !header.startsWith("Bearer ")) return false;
+  const provided = Buffer.from(header.slice(7), "utf8");
+  const expected = Buffer.from(authToken, "utf8");
+  return provided.length === expected.length && timingSafeEqual(provided, expected);
 };
 
 const readJsonBody = async (
@@ -157,6 +163,60 @@ const STATIC_ROUTES = new Map<string, StaticRouteFn>([
   ],
 ]);
 
+const handleMcpPost = async (req: IncomingMessage, res: ServerResponse, mcp: McpHttpDispatch): Promise<void> => {
+  const raw = await readJsonBody(req);
+  if (!raw.ok) {
+    sendJson(res, 400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, MCP_HEADERS);
+    return;
+  }
+  if (Array.isArray(raw.data)) {
+    const out: Array<Record<string, unknown>> = [];
+    for (const item of raw.data) {
+      const r = await mcp(item);
+      if (r !== null) out.push(r);
+    }
+    if (out.length === 0) {
+      res.writeHead(202, MCP_HEADERS);
+      res.end();
+      return;
+    }
+    sendJson(res, 200, out, MCP_HEADERS);
+    return;
+  }
+  const resp = await mcp(raw.data);
+  if (resp === null) {
+    res.writeHead(202, MCP_HEADERS);
+    res.end();
+    return;
+  }
+  sendJson(res, 200, resp, MCP_HEADERS);
+};
+
+const routeMcp = async (
+  method: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+  mcp: McpHttpDispatch | undefined,
+): Promise<void> => {
+  if (method === "OPTIONS" || method === "DELETE") {
+    res.writeHead(204, MCP_HEADERS);
+    res.end();
+    return;
+  }
+  if (method !== "POST") {
+    sendJson(res, 405, apiError("bad_request", "use POST /mcp for Streamable HTTP MCP requests"), {
+      ...MCP_HEADERS,
+      Allow: "POST, DELETE, OPTIONS",
+    });
+    return;
+  }
+  if (mcp === undefined) {
+    sendError(res, "unavailable", "MCP endpoint is not enabled");
+    return;
+  }
+  await handleMcpPost(req, res, mcp);
+};
+
 const handleBookmarkSingle = async (method: string, id: BookmarkId, ctx: RouteCtx): Promise<boolean> => {
   if (method === "GET") {
     const detail = await ctx.handlers.getById(id);
@@ -229,12 +289,32 @@ const routeDynamic = async (method: string, pathname: string, ctx: RouteCtx): Pr
   return routeBookmarkTag(method, pathname, ctx);
 };
 
-const dispatchRequest = async (req: IncomingMessage, res: ServerResponse, handlers: HttpApiHandlers): Promise<void> => {
+const requiresAuth = (method: string, pathname: string): boolean => method !== "OPTIONS" && pathname !== "/health";
+
+const parseRequestMeta = (req: IncomingMessage) => {
   const method = (req.method ?? "GET").toUpperCase();
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
-  const ctx: RouteCtx = { url, req, res, handlers };
+  return { method, url, pathname };
+};
 
+const dispatchRequest = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  handlers: HttpApiHandlers,
+  options: HttpServerOptions,
+): Promise<void> => {
+  const { method, url, pathname } = parseRequestMeta(req);
+  if (requiresAuth(method, pathname) && !isAuthorized(req, options.authToken ?? null)) {
+    sendError(res, "unauthorized", "missing or invalid bearer token");
+    return;
+  }
+  if (pathname === "/mcp") {
+    await routeMcp(method, req, res, options.mcp);
+    return;
+  }
+
+  const ctx: RouteCtx = { url, req, res, handlers };
   const staticFn = STATIC_ROUTES.get(`${method} ${pathname}`);
   if (staticFn !== undefined) {
     await staticFn(ctx);
@@ -244,9 +324,9 @@ const dispatchRequest = async (req: IncomingMessage, res: ServerResponse, handle
   sendError(res, "not_found", `route not found: ${method} ${pathname}`);
 };
 
-export const createHttpServer = (handlers: HttpApiHandlers): Server =>
+export const createHttpServer = (handlers: HttpApiHandlers, options: HttpServerOptions = {}): Server =>
   createServer((req, res) => {
-    void dispatchRequest(req, res, handlers).catch((err: unknown) => {
+    void dispatchRequest(req, res, handlers, options).catch((err: unknown) => {
       sendError(res, "internal", err instanceof Error ? err.message : String(err));
     });
   });

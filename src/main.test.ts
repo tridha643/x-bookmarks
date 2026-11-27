@@ -13,6 +13,7 @@ import {
   dispatchCommand,
   parseCliArgs,
   runCronCommand,
+  runDaemonCommand,
   start,
 } from "./main.ts";
 
@@ -81,6 +82,28 @@ describe("main CLI", () => {
     expect(runCronCommand(parseCliArgs(["uninstall"]), fns)).toBe(0);
     expect(runCronCommand(parseCliArgs([]), fns)).toBe(0);
     expect(calls).toEqual(["install:12h:true:false", "install:def:false:true", "uninstall", "status"]);
+
+    const daemonCalls: string[] = [];
+    const daemonFns = {
+      install: (opts: { host?: string; port?: number; authToken?: string | null }) => {
+        daemonCalls.push(`install:${opts.host ?? ""}:${String(opts.port)}:${opts.authToken ?? "none"}`);
+        return "installed";
+      },
+      uninstall: () => {
+        daemonCalls.push("uninstall");
+        return "uninstalled";
+      },
+      status: () => {
+        daemonCalls.push("status");
+        return "status";
+      },
+    };
+    const env = decodeAppEnv({ XBM_AUTH_TOKEN: "tok" }, "/srv");
+    expect(runDaemonCommand(parseCliArgs(["install", "--host", "0.0.0.0", "--port", "9000"]), env, daemonFns)).toBe(0);
+    expect(runDaemonCommand(parseCliArgs(["install"]), env, daemonFns)).toBe(0);
+    expect(runDaemonCommand(parseCliArgs(["uninstall"]), env, daemonFns)).toBe(0);
+    expect(runDaemonCommand(parseCliArgs([]), env, daemonFns)).toBe(0);
+    expect(daemonCalls).toEqual(["install:0.0.0.0:9000:tok", "install:127.0.0.1:8787:tok", "uninstall", "status"]);
   });
 
   it("dispatches all CLI commands through dispatchCommand", async () => {
@@ -290,9 +313,25 @@ describe("main CLI", () => {
     }
   });
 
-  it("handles start() help and stats against a temporary DB", async () => {
-    expect(await start([])).toBe(0);
-    expect(await start(["help"])).toBe(0);
+  it("handles start() help, daemon status, and stats against a temporary DB", async () => {
+    const out: string[] = [];
+    const log = (line: string) => {
+      out.push(line);
+    };
+    expect(await start([], log)).toBe(0);
+    expect(await start(["help"], log)).toBe(0);
+    expect(out[0]).toContain("Commands:");
+    expect(out[1]).toContain("Commands:");
+
+    out.length = 0;
+    expect(
+      await start(["daemon", "status"], log, {
+        install: () => "installed",
+        uninstall: () => "uninstalled",
+        status: () => "daemon-status-ok",
+      }),
+    ).toBe(0);
+    expect(out[0]).toBe("daemon-status-ok");
 
     const dir = mkdtempSync(join(tmpdir(), "xbm-cli-test-"));
     const base = join(dir, "xbm");
